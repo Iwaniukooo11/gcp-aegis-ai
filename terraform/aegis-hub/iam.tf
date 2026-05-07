@@ -13,12 +13,15 @@ resource "google_service_account" "aegis_bot" {
 # ------------------------------------------------------------------------------
 # We are telling GCP: "The bot is allowed to use Firestore, BigQuery, AI, and Secrets."
 locals {
-  bot_hub_roles =[
-    "roles/datastore.user",               # Read/write chats to Firestore
-    "roles/bigquery.dataEditor",          # Save incident records to BigQuery
-    "roles/aiplatform.user",              # Talk to Vertex AI (Gemini)
-    "roles/secretmanager.secretAccessor"  # Read Slack tokens from the Safe
+  bot_hub_roles = [
+    "roles/datastore.user",              # Read/write chats to Firestore
+    "roles/bigquery.dataEditor",         # Save incident records to BigQuery
+    "roles/bigquery.jobUser",            # Run incident-query and SLO queries
+    "roles/aiplatform.user",             # Talk to Vertex AI (Gemini)
+    "roles/secretmanager.secretAccessor" # Read Slack tokens from the Safe
   ]
+
+  pubsub_service_agent = "service-${data.google_project.hub.number}@gcp-sa-pubsub.iam.gserviceaccount.com"
 }
 
 resource "google_project_iam_member" "bot_hub_permissions" {
@@ -36,4 +39,26 @@ resource "google_service_account" "pubsub_invoker" {
   project      = var.hub_project_id
   account_id   = "pubsub-invoker-sa"
   display_name = "Pub/Sub Cloud Run Invoker"
+}
+
+resource "google_service_account_iam_member" "pubsub_can_sign_push_tokens" {
+  service_account_id = google_service_account.pubsub_invoker.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${local.pubsub_service_agent}"
+}
+
+resource "google_service_account_iam_member" "terraform_can_attach_aegis_bot" {
+  for_each = var.terraform_service_account_user_members
+
+  service_account_id = google_service_account.aegis_bot.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = each.key
+}
+
+resource "google_service_account_iam_member" "terraform_can_attach_pubsub_invoker" {
+  for_each = var.terraform_service_account_user_members
+
+  service_account_id = google_service_account.pubsub_invoker.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = each.key
 }

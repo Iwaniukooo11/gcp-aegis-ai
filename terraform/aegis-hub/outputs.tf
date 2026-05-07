@@ -17,10 +17,25 @@ output "incoming_logs_topic_id" {
   value       = google_pubsub_topic.incoming_logs.id
 }
 
+output "incoming_logs_topic_name" {
+  description = "The short Pub/Sub topic name for client Terraform"
+  value       = google_pubsub_topic.incoming_logs.name
+}
+
+output "dead_letter_subscription_name" {
+  description = "Pull subscription for inspecting dead-lettered incident messages"
+  value       = google_pubsub_subscription.dead_letter_pull.name
+}
+
 # ------------------------------------------------------------------------------
 # OUTPUTS (Information for you / Slack Setup)
 # ------------------------------------------------------------------------------
 output "slack_gateway_url" {
   description = "Put this URL into the Slack API Dashboard for Slash Commands"
   value       = google_cloud_run_v2_service.slack_gateway.uri
+}
+
+output "metrics_service_url" {
+  description = "Private Metrics Service URL used by the Slack Gateway"
+  value       = google_cloud_run_v2_service.metrics_service.uri
 }

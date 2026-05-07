@@ -1,0 +1,8 @@
+hub_project_id             = "aegis-hub-2137"
+region                     = "europe-central2"
+environment                = "dev"
+allowed_client_project_ids = ["your-client-project-id"]
+slack_alert_channel_id     = ""
+
+# Optional: enable only if your Terraform identity has Billing Budget permissions.
+# billing_account_name = "billingAccounts/000000-000000-000000"

@@ -5,14 +5,75 @@
 variable "hub_project_id" {
   description = "The GCP Project ID for the Aegis Hub SRE Bot"
   type        = string
-  # REPLACE THIS when you run Terraform, or pass it via a terraform.tfvars file
-  default     = "YOUR_HUB_PROJECT_ID" 
+
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]$", var.hub_project_id))
+    error_message = "hub_project_id must be a real GCP project ID: 6-30 chars, lowercase letters/numbers/hyphens, start with a letter, and not end with a hyphen."
+  }
 }
 
 variable "region" {
   description = "The GCP region to deploy all resources"
   type        = string
-  default     = "us-central1" # Best region for Vertex AI (Gemini) availability
+  default     = "europe-central2"
+}
+
+variable "environment" {
+  description = "Short environment label applied to managed resources"
+  type        = string
+  default     = "dev"
+
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{0,61}[a-z0-9]$", var.environment))
+    error_message = "environment must be a valid GCP label value: lowercase letters, numbers, and hyphens."
+  }
+}
+
+variable "allowed_client_project_ids" {
+  description = "Client project IDs that the Metrics Service may query"
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for project_id in var.allowed_client_project_ids : can(regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]$", project_id))])
+    error_message = "Every allowed client project ID must be a valid GCP project ID."
+  }
+}
+
+variable "slack_alert_channel_id" {
+  description = "Slack channel ID where incident alerts should be posted. Leave empty until the Slack app is configured."
+  type        = string
+  default     = ""
+}
+
+variable "terraform_service_account_user_members" {
+  description = "Optional IAM members allowed to attach the Cloud Run and Pub/Sub service accounts, e.g. user:you@example.com or serviceAccount:terraform@project.iam.gserviceaccount.com"
+  type        = set(string)
+  default     = []
+}
+
+variable "billing_account_name" {
+  description = "Optional billing account resource name for a monthly budget, e.g. billingAccounts/000000-000000-000000. Leave null to skip budget creation."
+  type        = string
+  default     = null
+}
+
+variable "monthly_budget_units" {
+  description = "Whole currency units for the optional monthly budget."
+  type        = number
+  default     = 25
+}
+
+variable "budget_currency_code" {
+  description = "Currency code for the optional billing budget."
+  type        = string
+  default     = "USD"
+}
+
+variable "budget_alert_thresholds" {
+  description = "Budget alert threshold percentages expressed as 1.0-based values."
+  type        = list(number)
+  default     = [0.5, 0.9, 1.0]
 }
 
 # ------------------------------------------------------------------------------

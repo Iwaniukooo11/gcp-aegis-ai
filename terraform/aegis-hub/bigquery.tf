@@ -2,9 +2,12 @@
 # BIGQUERY DATASET (The Filing Cabinet)
 # ------------------------------------------------------------------------------
 resource "google_bigquery_dataset" "incidents" {
-  project    = var.hub_project_id
-  dataset_id = "aegis_incidents"
-  location   = var.region
+  project                    = var.hub_project_id
+  dataset_id                 = "aegis_incidents"
+  location                   = var.region
+  delete_contents_on_destroy = true
+
+  depends_on = [google_project_service.enabled_apis]
 }
 
 # ------------------------------------------------------------------------------
@@ -17,8 +20,9 @@ resource "google_bigquery_table" "incidents" {
 
   # Partition by day (makes time-based SLO queries very cheap)
   time_partitioning {
-    type  = "DAY"
-    field = "created_at"
+    type          = "DAY"
+    field         = "created_at"
+    expiration_ms = 31536000000 # 365 days
   }
 
   # Cluster by common filters (speeds up searching for specific errors)
@@ -29,7 +33,10 @@ resource "google_bigquery_table" "incidents" {
 [
   {"name": "incident_id", "type": "STRING", "mode": "REQUIRED"},
   {"name": "idempotency_key", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "event_id", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "source_log_insert_id", "type": "STRING", "mode": "NULLABLE"},
   {"name": "client_project_id", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "resource_type", "type": "STRING", "mode": "NULLABLE"},
   {"name": "cluster_name", "type": "STRING", "mode": "NULLABLE"},
   {"name": "namespace", "type": "STRING", "mode": "NULLABLE"},
   {"name": "service_name", "type": "STRING", "mode": "REQUIRED"},
@@ -38,6 +45,7 @@ resource "google_bigquery_table" "incidents" {
   {"name": "error_type", "type": "STRING", "mode": "NULLABLE"},
   {"name": "short_message", "type": "STRING", "mode": "NULLABLE"},
   {"name": "stack_trace_preview", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "labels_json", "type": "STRING", "mode": "NULLABLE"},
   {"name": "ai_summary", "type": "STRING", "mode": "NULLABLE"},
   {"name": "ai_recommendation", "type": "STRING", "mode": "NULLABLE"},
   {"name": "slack_channel", "type": "STRING", "mode": "NULLABLE"},
@@ -52,4 +60,6 @@ resource "google_bigquery_table" "incidents" {
   {"name": "terminal_failure_reason", "type": "STRING", "mode": "NULLABLE"}
 ]
 EOF
+
+  deletion_protection = false
 }

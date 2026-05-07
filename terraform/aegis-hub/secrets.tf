@@ -8,6 +8,8 @@ resource "google_secret_manager_secret" "slack_token" {
   replication {
     auto {} # Google automatically replicates this secret across data centers
   }
+
+  depends_on = [google_project_service.enabled_apis]
 }
 
 resource "google_secret_manager_secret" "slack_signing_secret" {
@@ -17,4 +19,6 @@ resource "google_secret_manager_secret" "slack_signing_secret" {
   replication {
     auto {}
   }
+
+  depends_on = [google_project_service.enabled_apis]
 }
