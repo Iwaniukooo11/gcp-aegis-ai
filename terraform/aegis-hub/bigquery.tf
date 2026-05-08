@@ -25,7 +25,8 @@ resource "google_bigquery_table" "incidents" {
   clustering = ["client_project_id", "service_name", "severity"]
 
   # UPDATED SCHEMA based on the new M1 Checkpoint Document
-  schema = <<EOF[
+  schema = <<EOF
+[
   {"name": "incident_id", "type": "STRING", "mode": "REQUIRED"},
   {"name": "idempotency_key", "type": "STRING", "mode": "REQUIRED"},
   {"name": "client_project_id", "type": "STRING", "mode": "REQUIRED"},
