@@ -56,3 +56,14 @@ variable "hub_query_processor_service_account_email" {
     error_message = "hub_query_processor_service_account_email must be a valid service account email."
   }
 }
+
+variable "client_artifact_registry_repository_id" {
+  description = "Artifact Registry repository for client simulation container images"
+  type        = string
+  default     = "aegis-client-services"
+
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{2,62}$", var.client_artifact_registry_repository_id))
+    error_message = "client_artifact_registry_repository_id must be 3-63 lowercase letters, numbers, or hyphens, starting with a letter."
+  }
+}

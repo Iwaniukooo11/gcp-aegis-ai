@@ -5,7 +5,7 @@ Terraform for the Aegis AI cross-project SRE bot prototype.
 ## Terraform Stacks
 
 - `terraform/aegis-hub`: central Hub project resources: Cloud Run services, Pub/Sub, Firestore, BigQuery, Secret Manager, Artifact Registry, and optional billing budget.
-- `terraform/client-agent`: mock monitored Client project resources: GKE Autopilot, Cloud Logging sink, and cross-project IAM.
+- `terraform/client-agent`: mock monitored Client project resources: standard GKE, client Artifact Registry, Cloud Logging sink, Cloud Monitoring, and cross-project IAM.
 
 ## Prerequisites
 
@@ -71,6 +71,7 @@ hub_pubsub_topic_name                     = "aegis-incoming-logs"
 hub_query_processor_service_account_email = "aegis-query-processor-sa@aegis-hub-2137.iam.gserviceaccount.com"
 region                                    = "europe-central2"
 environment                               = "dev"
+client_artifact_registry_repository_id    = "aegis-client-services"
 ```
 
 Then deploy:
@@ -82,4 +83,30 @@ terraform plan
 terraform apply
 ```
 
-The client stack creates the GKE cluster and routes `k8s_container` logs with `severity >= ERROR` into the hub Pub/Sub topic. Kubernetes workloads and chaos endpoints are deployed separately.
+The client stack creates the standard GKE cluster, client Artifact Registry repository, Cloud Monitoring access for the Hub Query Processor, and the log sink that routes `k8s_container` logs with `severity >= ERROR` into the Hub Pub/Sub topic.
+
+## Client Workload Deploy
+
+Build and push the mock workload image to the client Artifact Registry:
+
+```bash
+gcloud auth configure-docker europe-central2-docker.pkg.dev
+
+docker build \
+  -t europe-central2-docker.pkg.dev/aegis-client-420/aegis-client-services/aegis-error-generator:latest \
+  client/client-simulation/error-generator
+
+docker push europe-central2-docker.pkg.dev/aegis-client-420/aegis-client-services/aegis-error-generator:latest
+```
+
+Deploy the Kubernetes manifests:
+
+```bash
+gcloud container clusters get-credentials mock-gke-standard \
+  --region europe-central2 \
+  --project aegis-client-420
+
+kubectl apply -f client/k8s/client-simulation/
+```
+
+The deployment uses the `:latest` tag with `imagePullPolicy: Always`, so newly started pods pull the newest pushed image.
