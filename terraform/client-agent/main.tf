@@ -25,13 +25,18 @@ provider "google" {
   }
 }
 
+data "google_project" "client" {
+  project_id = var.client_project_id
+}
+
 # ------------------------------------------------------------------------------
 # ENABLE GCP APIs
 # ------------------------------------------------------------------------------
 locals {
   services = [
-    "compute.googleapis.com",    # Needed for GKE VMs
-    "container.googleapis.com",  # Kubernetes Engine
+    "compute.googleapis.com",   # Needed for GKE VMs
+    "container.googleapis.com", # Kubernetes Engine
+    "artifactregistry.googleapis.com",
     "logging.googleapis.com",    # Cloud Logging
     "monitoring.googleapis.com", # Cloud Monitoring
     "cloudresourcemanager.googleapis.com",

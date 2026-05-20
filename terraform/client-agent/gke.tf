@@ -9,6 +9,33 @@ resource "google_container_cluster" "mock_gke" {
   initial_node_count       = 1
   node_locations           = ["${var.region}-a"]
 
+  logging_config {
+    enable_components = [
+      "SYSTEM_COMPONENTS",
+      "WORKLOADS"
+    ]
+  }
+
+  monitoring_config {
+    enable_components = [
+      "SYSTEM_COMPONENTS",
+      "STORAGE",
+      "HPA",
+      "POD",
+      "DAEMONSET",
+      "DEPLOYMENT",
+      "STATEFULSET",
+      "CADVISOR",
+      "KUBELET",
+      "DCGM",
+      "JOBSET"
+    ]
+
+    managed_prometheus {
+      enabled = true
+    }
+  }
+
   # Set to false so we can easily destroy the project after the course is over
   deletion_protection = false
 
