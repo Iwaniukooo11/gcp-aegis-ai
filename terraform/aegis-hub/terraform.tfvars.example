@@ -3,6 +3,7 @@ region                     = "europe-central2"
 environment                = "dev"
 allowed_client_project_ids = ["your-client-project-id"]
 slack_alert_channel_id     = ""
+# query_processor_image    = "europe-central2-docker.pkg.dev/aegis-hub-2137/aegis-services/query-processor:latest"
 
 # Optional: enable only if your Terraform identity has Billing Budget permissions.
 # billing_account_name = "billingAccounts/000000-000000-000000"

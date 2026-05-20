@@ -1,34 +1,75 @@
 # ------------------------------------------------------------------------------
-# THE MAIN BOT IDENTITY
+# CLOUD RUN SERVICE IDENTITIES
 # ------------------------------------------------------------------------------
-# This is the "ID Badge" that your Cloud Run services will wear.
-resource "google_service_account" "aegis_bot" {
+resource "google_service_account" "slack_gateway" {
   project      = var.hub_project_id
-  account_id   = "aegis-bot-sa"
-  display_name = "Aegis Bot Service Account"
+  account_id   = "aegis-slack-gateway-sa"
+  display_name = "Aegis Slack Gateway Service Account"
+}
+
+resource "google_service_account" "incident_analyzer" {
+  project      = var.hub_project_id
+  account_id   = "aegis-incident-analyzer-sa"
+  display_name = "Aegis Incident Analyzer Service Account"
+}
+
+resource "google_service_account" "query_processor" {
+  project      = var.hub_project_id
+  account_id   = "aegis-query-processor-sa"
+  display_name = "Aegis Query Processor Service Account"
 }
 
 # ------------------------------------------------------------------------------
-# HUB PERMISSIONS FOR THE BOT
+# HUB PERMISSIONS FOR CLOUD RUN SERVICES
 # ------------------------------------------------------------------------------
-# We are telling GCP: "The bot is allowed to use Firestore, BigQuery, AI, and Secrets."
 locals {
-  bot_hub_roles = [
-    "roles/datastore.user",              # Read/write chats to Firestore
-    "roles/bigquery.dataEditor",         # Save incident records to BigQuery
-    "roles/bigquery.jobUser",            # Run incident-query and SLO queries
-    "roles/aiplatform.user",             # Talk to Vertex AI (Gemini)
-    "roles/secretmanager.secretAccessor" # Read Slack tokens from the Safe
+  slack_gateway_hub_roles = [
+    "roles/datastore.user",
+    "roles/secretmanager.secretAccessor"
+  ]
+
+  incident_analyzer_hub_roles = [
+    "roles/aiplatform.user",
+    "roles/bigquery.dataEditor",
+    "roles/bigquery.jobUser",
+    "roles/datastore.user"
+  ]
+
+  query_processor_hub_roles = [
+    "roles/aiplatform.user",
+    "roles/bigquery.dataEditor",
+    "roles/bigquery.jobUser",
+    "roles/datastore.user"
   ]
 
   pubsub_service_agent = "service-${data.google_project.hub.number}@gcp-sa-pubsub.iam.gserviceaccount.com"
+
+  cloud_run_service_accounts = {
+    slack_gateway     = google_service_account.slack_gateway.name
+    incident_analyzer = google_service_account.incident_analyzer.name
+    query_processor   = google_service_account.query_processor.name
+  }
 }
 
-resource "google_project_iam_member" "bot_hub_permissions" {
-  for_each = toset(local.bot_hub_roles)
+resource "google_project_iam_member" "slack_gateway_hub_permissions" {
+  for_each = toset(local.slack_gateway_hub_roles)
   project  = var.hub_project_id
   role     = each.key
-  member   = "serviceAccount:${google_service_account.aegis_bot.email}"
+  member   = "serviceAccount:${google_service_account.slack_gateway.email}"
+}
+
+resource "google_project_iam_member" "incident_analyzer_hub_permissions" {
+  for_each = toset(local.incident_analyzer_hub_roles)
+  project  = var.hub_project_id
+  role     = each.key
+  member   = "serviceAccount:${google_service_account.incident_analyzer.email}"
+}
+
+resource "google_project_iam_member" "query_processor_hub_permissions" {
+  for_each = toset(local.query_processor_hub_roles)
+  project  = var.hub_project_id
+  role     = each.key
+  member   = "serviceAccount:${google_service_account.query_processor.email}"
 }
 
 # ------------------------------------------------------------------------------
@@ -47,12 +88,18 @@ resource "google_service_account_iam_member" "pubsub_can_sign_push_tokens" {
   member             = "serviceAccount:${local.pubsub_service_agent}"
 }
 
-resource "google_service_account_iam_member" "terraform_can_attach_aegis_bot" {
-  for_each = var.terraform_service_account_user_members
+resource "google_service_account_iam_member" "terraform_can_attach_cloud_run_service_accounts" {
+  for_each = {
+    for binding in setproduct(keys(local.cloud_run_service_accounts), var.terraform_service_account_user_members) :
+    "${binding[0]}:${binding[1]}" => {
+      service_account_name = local.cloud_run_service_accounts[binding[0]]
+      member               = binding[1]
+    }
+  }
 
-  service_account_id = google_service_account.aegis_bot.name
+  service_account_id = each.value.service_account_name
   role               = "roles/iam.serviceAccountUser"
-  member             = each.key
+  member             = each.value.member
 }
 
 resource "google_service_account_iam_member" "terraform_can_attach_pubsub_invoker" {

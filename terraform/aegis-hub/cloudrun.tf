@@ -7,7 +7,7 @@ resource "google_cloud_run_v2_service" "slack_gateway" {
   location = var.region
   ingress  = "INGRESS_TRAFFIC_ALL"
   template {
-    service_account = google_service_account.aegis_bot.email
+    service_account = google_service_account.slack_gateway.email
     containers {
       image = var.slack_gateway_image # Using the dummy "hello world" image for now
 
@@ -26,18 +26,6 @@ resource "google_cloud_run_v2_service" "slack_gateway" {
       env {
         name  = "FIRESTORE_DATABASE"
         value = google_firestore_database.session_db.name
-      }
-      env {
-        name  = "BIGQUERY_DATASET"
-        value = google_bigquery_dataset.incidents.dataset_id
-      }
-      env {
-        name  = "BIGQUERY_INCIDENTS_TABLE"
-        value = google_bigquery_table.incidents.table_id
-      }
-      env {
-        name  = "METRICS_SERVICE_URL"
-        value = google_cloud_run_v2_service.metrics_service.uri
       }
       env {
         name  = "ALLOWED_CLIENT_PROJECT_IDS"
@@ -60,7 +48,7 @@ resource "google_cloud_run_v2_service" "slack_gateway" {
 
   depends_on = [
     google_project_service.enabled_apis,
-    google_project_iam_member.bot_hub_permissions,
+    google_project_iam_member.slack_gateway_hub_permissions,
     google_firestore_field.sessions_ttl
   ]
 }
@@ -83,7 +71,7 @@ resource "google_cloud_run_v2_service" "incident_analyzer" {
   location = var.region
   ingress  = "INGRESS_TRAFFIC_ALL"
   template {
-    service_account = google_service_account.aegis_bot.email
+    service_account = google_service_account.incident_analyzer.email
     containers {
       image = var.incident_analyzer_image
 
@@ -116,8 +104,8 @@ resource "google_cloud_run_v2_service" "incident_analyzer" {
         value = var.slack_alert_channel_id
       }
       env {
-        name  = "SLACK_BOT_TOKEN_SECRET"
-        value = google_secret_manager_secret.slack_token.id
+        name  = "SLACK_GATEWAY_URL"
+        value = google_cloud_run_v2_service.slack_gateway.uri
       }
     }
     scaling {
@@ -128,23 +116,23 @@ resource "google_cloud_run_v2_service" "incident_analyzer" {
 
   depends_on = [
     google_project_service.enabled_apis,
-    google_project_iam_member.bot_hub_permissions,
+    google_project_iam_member.incident_analyzer_hub_permissions,
     google_firestore_field.sessions_ttl
   ]
 }
 
 # ------------------------------------------------------------------------------
-# 3. METRICS SERVICE (The Vitals Checker - PRIVATE)
+# 3. QUERY PROCESSOR (The Vitals Checker - PRIVATE)
 # ------------------------------------------------------------------------------
-resource "google_cloud_run_v2_service" "metrics_service" {
+resource "google_cloud_run_v2_service" "query_processor" {
   project  = var.hub_project_id
-  name     = "aegis-metrics-service"
+  name     = "aegis-query-processor"
   location = var.region
   ingress  = "INGRESS_TRAFFIC_ALL"
   template {
-    service_account = google_service_account.aegis_bot.email
+    service_account = google_service_account.query_processor.email
     containers {
-      image = var.metrics_service_image
+      image = local.query_processor_image
 
       env {
         name  = "GCP_PROJECT"
@@ -162,6 +150,22 @@ resource "google_cloud_run_v2_service" "metrics_service" {
         name  = "ALLOWED_CLIENT_PROJECT_IDS"
         value = join(",", var.allowed_client_project_ids)
       }
+      env {
+        name  = "BIGQUERY_DATASET"
+        value = google_bigquery_dataset.incidents.dataset_id
+      }
+      env {
+        name  = "BIGQUERY_INCIDENTS_TABLE"
+        value = google_bigquery_table.incidents.table_id
+      }
+      env {
+        name  = "FIRESTORE_DATABASE"
+        value = google_firestore_database.session_db.name
+      }
+      env {
+        name  = "SLACK_GATEWAY_URL"
+        value = google_cloud_run_v2_service.slack_gateway.uri
+      }
     }
     scaling {
       min_instance_count = 0
@@ -171,14 +175,23 @@ resource "google_cloud_run_v2_service" "metrics_service" {
 
   depends_on = [
     google_project_service.enabled_apis,
-    google_project_iam_member.bot_hub_permissions
+    google_project_iam_member.query_processor_hub_permissions,
+    google_firestore_field.sessions_ttl
   ]
 }
 
-resource "google_cloud_run_v2_service_iam_member" "slack_gateway_can_invoke_metrics" {
+resource "google_cloud_run_v2_service_iam_member" "incident_analyzer_can_invoke_slack_gateway" {
   project  = var.hub_project_id
-  location = google_cloud_run_v2_service.metrics_service.location
-  name     = google_cloud_run_v2_service.metrics_service.name
+  location = google_cloud_run_v2_service.slack_gateway.location
+  name     = google_cloud_run_v2_service.slack_gateway.name
   role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.aegis_bot.email}"
+  member   = "serviceAccount:${google_service_account.incident_analyzer.email}"
+}
+
+resource "google_cloud_run_v2_service_iam_member" "query_processor_can_invoke_slack_gateway" {
+  project  = var.hub_project_id
+  location = google_cloud_run_v2_service.slack_gateway.location
+  name     = google_cloud_run_v2_service.slack_gateway.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.query_processor.email}"
 }

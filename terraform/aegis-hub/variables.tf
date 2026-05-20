@@ -30,7 +30,7 @@ variable "environment" {
 }
 
 variable "allowed_client_project_ids" {
-  description = "Client project IDs that the Metrics Service may query"
+  description = "Client project IDs that the Query Processor may query"
   type        = list(string)
   default     = []
 
@@ -95,7 +95,17 @@ variable "incident_analyzer_image" {
 }
 
 variable "metrics_service_image" {
-  description = "Docker image for the Metrics service"
+  description = "Deprecated compatibility image for the former Metrics service. Use query_processor_image instead."
   type        = string
   default     = "us-docker.pkg.dev/cloudrun/container/hello"
+}
+
+variable "query_processor_image" {
+  description = "Docker image for the Query Processor service"
+  type        = string
+  default     = null
+}
+
+locals {
+  query_processor_image = coalesce(var.query_processor_image, var.metrics_service_image)
 }

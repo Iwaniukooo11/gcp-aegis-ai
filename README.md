@@ -65,12 +65,12 @@ If you have Billing Budget permissions, set `billing_account_name` in the hub tf
 Create `terraform/client-agent/terraform.tfvars` from the example using hub outputs:
 
 ```hcl
-client_project_id             = "<client-project-id>"
-hub_project_id                = "aegis-hub-2137"
-hub_pubsub_topic_name         = "aegis-incoming-logs"
-hub_bot_service_account_email = "aegis-bot-sa@aegis-hub-2137.iam.gserviceaccount.com"
-region                        = "europe-central2"
-environment                   = "dev"
+client_project_id                         = "<client-project-id>"
+hub_project_id                            = "aegis-hub-2137"
+hub_pubsub_topic_name                     = "aegis-incoming-logs"
+hub_query_processor_service_account_email = "aegis-query-processor-sa@aegis-hub-2137.iam.gserviceaccount.com"
+region                                    = "europe-central2"
+environment                               = "dev"
 ```
 
 Then deploy:
