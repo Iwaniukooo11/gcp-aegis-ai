@@ -1,0 +1,18 @@
+[project]
+name = "query-processor"
+version = "0.1.0"
+description = "Aegis Query Processor — operator incident queries via Vertex AI and Cloud Monitoring"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.136.1",
+    "google-auth>=2.53.0",
+    "google-cloud-bigquery>=3.41.0",
+    "google-cloud-firestore>=2.27.0",
+    "google-cloud-monitoring>=2.30.0",
+    "httpx>=0.28.1",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.1",
+    "uvicorn[standard]>=0.47.0",
+    "vertexai>=1.71.1",
+]

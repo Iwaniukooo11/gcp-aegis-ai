@@ -9,39 +9,32 @@ resource "google_cloud_run_v2_service" "slack_gateway" {
   template {
     service_account = google_service_account.slack_gateway.email
     containers {
-      image = var.slack_gateway_image # Using the dummy "hello world" image for now
+      image = var.slack_gateway_image
 
-      env {
-        name  = "GCP_PROJECT"
-        value = var.hub_project_id
-      }
-      env {
-        name  = "GCP_REGION"
-        value = var.region
-      }
       env {
         name  = "ENVIRONMENT"
         value = var.environment
       }
       env {
-        name  = "FIRESTORE_DATABASE"
-        value = google_firestore_database.session_db.name
+        name  = "QUERY_PROCESSOR_URL"
+        value = google_cloud_run_v2_service.query_processor.uri
       }
       env {
-        name  = "ALLOWED_CLIENT_PROJECT_IDS"
-        value = join(",", var.allowed_client_project_ids)
+        name  = "DEFAULT_SLACK_CHANNEL_ID"
+        value = var.slack_alert_channel_id
       }
       env {
-        name  = "SLACK_BOT_TOKEN_SECRET"
-        value = google_secret_manager_secret.slack_token.id
-      }
-      env {
-        name  = "SLACK_SIGNING_SECRET_SECRET"
-        value = google_secret_manager_secret.slack_signing_secret.id
+        name = "SLACK_BOT_TOKEN"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.slack_token.secret_id
+            version = "latest"
+          }
+        }
       }
     }
     scaling {
-      min_instance_count = 0 # Scales to zero to save money!
+      min_instance_count = 0
       max_instance_count = 5
     }
   }
@@ -49,7 +42,6 @@ resource "google_cloud_run_v2_service" "slack_gateway" {
   depends_on = [
     google_project_service.enabled_apis,
     google_project_iam_member.slack_gateway_hub_permissions,
-    google_firestore_field.sessions_ttl
   ]
 }
 
@@ -107,10 +99,14 @@ resource "google_cloud_run_v2_service" "incident_analyzer" {
         name  = "SLACK_GATEWAY_URL"
         value = google_cloud_run_v2_service.slack_gateway.uri
       }
+      env {
+        name  = "VERTEX_MODEL"
+        value = "gemini-1.5-flash"
+      }
     }
     scaling {
       min_instance_count = 0
-      max_instance_count = 10 # Higher max because log bursts can be huge
+      max_instance_count = 10
     }
   }
 
@@ -163,8 +159,8 @@ resource "google_cloud_run_v2_service" "query_processor" {
         value = google_firestore_database.session_db.name
       }
       env {
-        name  = "SLACK_GATEWAY_URL"
-        value = google_cloud_run_v2_service.slack_gateway.uri
+        name  = "VERTEX_MODEL"
+        value = "gemini-1.5-flash"
       }
     }
     scaling {
@@ -188,10 +184,10 @@ resource "google_cloud_run_v2_service_iam_member" "incident_analyzer_can_invoke_
   member   = "serviceAccount:${google_service_account.incident_analyzer.email}"
 }
 
-resource "google_cloud_run_v2_service_iam_member" "query_processor_can_invoke_slack_gateway" {
+resource "google_cloud_run_v2_service_iam_member" "slack_gateway_can_invoke_query_processor" {
   project  = var.hub_project_id
-  location = google_cloud_run_v2_service.slack_gateway.location
-  name     = google_cloud_run_v2_service.slack_gateway.name
+  location = google_cloud_run_v2_service.query_processor.location
+  name     = google_cloud_run_v2_service.query_processor.name
   role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.query_processor.email}"
+  member   = "serviceAccount:${google_service_account.slack_gateway.email}"
 }

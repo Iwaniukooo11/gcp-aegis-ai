@@ -2,8 +2,12 @@ hub_project_id             = "aegis-hub-2137"
 region                     = "europe-central2"
 environment                = "dev"
 allowed_client_project_ids = ["your-client-project-id"]
-slack_alert_channel_id     = ""
+slack_alert_channel_id     = ""   # e.g. "C123ABC456"
+
+# Set these after building and pushing images:
+# incident_analyzer_image  = "europe-central2-docker.pkg.dev/aegis-hub-2137/aegis-services/incident-analyzer:latest"
 # query_processor_image    = "europe-central2-docker.pkg.dev/aegis-hub-2137/aegis-services/query-processor:latest"
+# slack_gateway_image      = "europe-central2-docker.pkg.dev/aegis-hub-2137/aegis-services/slack-gateway:latest"
 
 # Optional: enable only if your Terraform identity has Billing Budget permissions.
 # billing_account_name = "billingAccounts/000000-000000-000000"

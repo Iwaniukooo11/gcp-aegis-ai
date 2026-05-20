@@ -54,9 +54,8 @@ resource "google_pubsub_subscription" "analyzer_push" {
 
   # Push the message to the Incident Analyzer Cloud Run URL
   push_config {
-    push_endpoint = google_cloud_run_v2_service.incident_analyzer.uri
+    push_endpoint = "${google_cloud_run_v2_service.incident_analyzer.uri}/pubsub/push"
 
-    # Use the special Pub/Sub ID badge we created in iam.tf
     oidc_token {
       service_account_email = google_service_account.pubsub_invoker.email
       audience              = google_cloud_run_v2_service.incident_analyzer.uri
