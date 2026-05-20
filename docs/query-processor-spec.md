@@ -34,7 +34,7 @@ flowchart LR
 
 | Component | Calls Query Processor? | Notes |
 |-----------|------------------------|--------|
-| **Slack Gateway** | Yes (only HTTP client) | Forwards app-mention / slash-derived work as REST |
+| **Slack Gateway** | Yes (only HTTP client) | Forwards app-mention and `/aegis-latest-incidents` work as REST |
 | **Incident Analyzer** | No | Seeds Firestore + BigQuery; alerts via Slack Gateway |
 | **Pub/Sub / Client projects** | No | |
 
@@ -59,9 +59,9 @@ Slack UX is owned by Slack Gateway. Query Processor exposes **two REST operation
 | Slack behavior (product) | Query Processor operation |
 |--------------------------|---------------------------|
 | User **app mention** in context of an incident (passes `incident_id` + text) | `POST /v1/incidents/{incidentId}/query` |
-| App mention text with `latest` command | `GET /v1/incidents/latest?limit=N` |
+| Slack slash command **`/aegis-latest-incidents`** (optional limit text) | `GET /v1/incidents/latest?limit=N` |
 
-**Out of scope for Query Processor (MVP):** `/aegis status`, `/aegis explain`, `/aegis help`, thread/session mapping by Slack `thread_ts` (threads are **disregarded**; session key is **`incident_id` only**).
+**Out of scope for Query Processor (MVP):** `/aegis status`, `/aegis explain`, `/aegis help`, and other slash commands besides **`/aegis-latest-incidents`**; thread/session mapping by Slack `thread_ts` (threads are **disregarded**; session key is **`incident_id` only**). Latest incidents are triggered only via `/aegis-latest-incidents`, parsed by Slack Gateway.
 
 ---
 
@@ -123,11 +123,11 @@ Not used by Slack; for Cloud Run / ops.
 
 ---
 
-## 4. Operation A — Latest incidents (stateless)
+## 4. Operation A — Latest incidents (stateless, via `/aegis-latest-incidents`)
 
 ### 4.1 Purpose
 
-Return the most recent **successfully persisted** incidents for display in Slack (e.g. numbered list with id, service, error, age).
+Return the most recent **fully successful** incidents for display in Slack (e.g. numbered list with id, service, error, age). Rows with `PARTIAL_SUCCESS` or `FAILED` are excluded.
 
 ### 4.2 Request
 
@@ -144,7 +144,7 @@ No request body. No Firestore. No Gemini.
 ### 4.3 BigQuery contract
 
 - **Dataset / table:** `aegis_incidents.incidents` (env: `BIGQUERY_DATASET`, `BIGQUERY_INCIDENTS_TABLE`).
-- **Filter:** `terminal_status IN ('SUCCESS', 'PARTIAL_SUCCESS')`.
+- **Filter:** `terminal_status = 'SUCCESS'` only.
 - **Order:** `created_at DESC`.
 - **Limit:** query parameter (default 10).
 
@@ -161,7 +161,7 @@ SELECT
   short_message,
   ai_summary
 FROM `{hub_project}.aegis_incidents.incidents`
-WHERE terminal_status IN ('SUCCESS', 'PARTIAL_SUCCESS')
+WHERE terminal_status = 'SUCCESS'
 ORDER BY created_at DESC
 LIMIT @limit
 ```
@@ -302,6 +302,7 @@ sequenceDiagram
 {
   "incident_id": "INC-2026-000041",
   "slack_text": "*Aegis* — java-api (mock-client-dev)\n\n**Status:** Memory still elevated...\n\n**Likely causes:**\n1. ...\n\n**Suggested checks:**\n- ...",
+  "timestamp": "2026-04-26T16:56:28Z",
   "session_updated": true,
   "metrics_fetched": true,
   "processing_ms": 8420
@@ -312,6 +313,7 @@ sequenceDiagram
 |-------|----------|-------------|
 | `incident_id` | yes | Echo path id |
 | `slack_text` | yes | **Final** Markdown (or mrkdwn-safe) string; Gateway posts as-is with minimal wrapping |
+| `timestamp` | yes | ISO-8601 UTC when the response was generated |
 | `session_updated` | yes | Firestore write succeeded |
 | `metrics_fetched` | recommended | `false` if plan empty or Monitoring failed but degraded reply still sent |
 | `processing_ms` | optional | Observability |
@@ -511,7 +513,7 @@ Hub bot roles: `bigquery.dataEditor`, `bigquery.jobUser` (shared SA; Query Proce
 
 | Slack trigger (product) | HTTP call |
 |-------------------------|-----------|
-| App mention text that asks for latest incidents | `GET /v1/incidents/latest?limit=N` |
+| Slash command `/aegis-latest-incidents` | `GET /v1/incidents/latest?limit=N` |
 | App mention with `incident_id` + user text | `POST /v1/incidents/{incidentId}/query` |
 
 Gateway responsibilities:
@@ -525,7 +527,7 @@ Gateway responsibilities:
 
 ### 10.2 Incident Analyzer → Slack Gateway (out of band)
 
-Query Processor is not in this path. Documented for context: Analyzer sends alert text to Gateway; alert should include **`incident_id`** so users can mention the bot with that id.
+Query Processor is not in this path. Documented for context: Analyzer sends alert text to Gateway (no `channel_id`; Slack Gateway picks the alert channel). Alert should include **`incident_id`** so users can mention the bot with that id.
 
 ---
 
@@ -552,7 +554,7 @@ Slack secrets are **not** on Query Processor.
 - Pub/Sub consumption and incident normalization  
 - BigQuery **writes** and idempotency dedup store  
 - Initial Firestore session creation  
-- `/aegis status`, `/aegis explain`, `/aegis help` (unless added later as new endpoints)  
+- Slash commands other than `/aegis-latest-incidents` (e.g. `/aegis status`, `/aegis explain`, `/aegis help`) unless added later  
 - Kubernetes API live pod listing (deferred in M1)  
 - Session keyed by Slack `thread_ts`  
 - Public/unauthenticated access to business APIs  

@@ -566,10 +566,12 @@ This endpoint should be authenticated with Google identity tokens and invoker IA
 
 Gateway responsibilities:
 
-- choose Slack destination channel
+- choose Slack destination channel from `DEFAULT_SLACK_CHANNEL_ID` (Analyzer must not send `channel_id`)
 - post `formatted_message` when present
 - otherwise post `fallback_text`
 - optionally return Slack posting metadata later
+
+Analyzer must not include `channel_id` or `thread_ts` in the alert payload.
 
 ### 10.5 Success criteria for Analyzer
 
@@ -703,7 +705,7 @@ These are still implementation choices, not unresolved product rules.
 ## 16. Related documents
 
 - `AGENTS.md` — newer architecture and service ownership
-- `.llm_context/query-processor-spec-detailed.md` — downstream session and query flow
+- `docs/query-processor-spec.md` — downstream session and query flow
 - `.llm_context/Aegis_AI_M1_Checkpoint_with_Firebase.md` — original project document
 - `terraform/aegis-hub/pubsub.tf` — Pub/Sub push subscription wiring
 - `terraform/aegis-hub/bigquery.tf` — current BigQuery schema
