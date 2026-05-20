@@ -1,8 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: aegis-simulation
-  labels:
-    app: aegis-ai
-    component: client-simulation
-    environment: dev
