@@ -12,7 +12,7 @@ Aegis AI is a serverless, multi-project ChatOps/SRE assistant for monitoring app
 1. **Aegis Hub Project** — the central serverless application operated by the team.  
 2. **Client Project** — a mock monitored environment containing a GKE-based microservice application with chaos/failure endpoints.
 
-When an error occurs in the Client Project, Cloud Logging routes selected error logs to the Hub through Pub/Sub. The Hub normalizes the incident, stores a sanitized incident record in BigQuery, sends a human-readable Slack alert, and may optionally enrich the incident with Gemini-generated explanation. Engineers can also use Slack commands or direct mentions to request current service health, recent error context, and metrics.
+When an error occurs in the Client Project, Cloud Logging routes selected error logs to the Hub through Pub/Sub. The Hub normalizes the incident, stores a sanitized incident record in BigQuery, sends a human-readable Slack alert, and may optionally enrich the incident with Gemini-generated explanation. Engineers use **app mentions** to ask about a specific incident (`@bot INC-… question`) and the **`/aegis-latest-incidents`** slash command to list recent incidents.
 
 The solution demonstrates correct cloud architecture, serverless/PaaS preference, infrastructure-as-code, storage design, APIs, reliability thinking, and large-scale assumptions. It is not expected to be scaled heavily because of the limited course budget, but the architecture should be extensible.
 
@@ -44,7 +44,7 @@ flowchart TB
         BigQuery[("BigQuery\naegis_incidents")]
         Firestore[("Firestore\nSession State")]
   end
-    SRE["👤 DevOps / SRE User"] -- Slash command or mention --> Slack["Slack Workspace"]
+    SRE["👤 DevOps / SRE User"] -- App mention or /aegis-latest-incidents --> Slack["Slack Workspace"]
     ChaosBackend --> ChaosStorage
     GKE --> Logging & Monitoring
     Logging --> Sink
@@ -68,12 +68,13 @@ flowchart TB
 ## Changes from the original plan in markdown document
 
 - **Metrics Service** in `.llm_context/Aegis_AI_M1_Checkpoint_with_Firebase.md` is renamed to **Query Processor** (same role: cross-project health, monitoring, and logging queries).
-- Query Processor will also be responsible for parsing App Mention text it receives from the Slack Gateway
-- Slack Gateway now acts only as a thin layer responsible for communication with Slack (receive App Mentions and send responses), it also gets messages from Incident Analyzer that it just has to send to Slack
-- Query Processor should handle 2 paths. First path is an app mention from slack. Slack Gateway sends incident_id and message from developer. Query processor should: get conversation session from Firebase based on incident_id (we assume there is just a session per incident, each message regarding this incident is added to conversation), then should query Vertex AI to analyze what metrics we need for further processing based on what the user asked (and append conversatino to firestore), then call for metrics, then analyze the metrics - generate possible root causes, write response, forward response back to slack gateway. The second path is for command "latest incidents" - then it should not get the conversation from firestore, instead just query big query for latest incidents, create response, send response back to slack gateway
-- Incident Analyzer does not connect to slack, it routes through slack gateway
-- slack gateway does not need connection to vertex AI (parsing user queries is in query processor)
-- when in doubt you can search in .llm_context/new_architecture_description.md
+- Slack Gateway is a thin layer: Slack Events API in, `chat.postMessage` out, routes to Query Processor and receives Incident Analyzer alerts
+- Slack Gateway handles two Slack ingress paths: **app mentions** (`incident_id` + `text` only) and slash command **`/aegis-latest-incidents`** (optional limit text)
+- Query Processor handles 2 paths: (1) app mention with `incident_id` — Gateway sends `POST /v1/incidents/{id}/query` with `text`; QP loads Firestore session, runs Gemini + Monitoring, returns `slack_text` + `timestamp`. (2) `/aegis-latest-incidents` — Gateway sends `GET /v1/incidents/latest?limit=N`; QP queries BigQuery (`terminal_status = SUCCESS` only), Gateway formats the list for Slack
+- Incident Analyzer does not connect to Slack; it posts alert payloads to Slack Gateway (no `channel_id`; Gateway uses `DEFAULT_SLACK_CHANNEL_ID`)
+- Slack Gateway has no Vertex AI, Firestore, BigQuery, or Monitoring access
+- Only one slash command in MVP: `/aegis-latest-incidents` (`/aegis status`, `/aegis help`, etc. remain out of scope)
+- when in doubt search `docs/*-spec.md` or `.llm_context/new_architecture_description.md`
 
 
 
@@ -98,7 +99,7 @@ terraform/
   client-agent/       # Client project: GKE Autopilot, log sink, cross-project IAM
 
 aegis-hub-code/       # One folder per Hub Cloud Run service (Python + FastAPI + uv)
-  slack-gateway/      # Slack slash commands, Events API, Firestore chat context
+  slack-gateway/      # Slack Events API (app mentions), /aegis-latest-incidents, alert relay
   incident-analyzer/  # Pub/Sub push: normalize logs, BigQuery, Slack alerts, Gemini
   query-processor/    # REST: status, metrics, recent errors (was Metrics Service in M1 doc)
 
@@ -123,9 +124,6 @@ In terraform/aegis-hub and terraform/client-agent
 - Use full names (f.e insetad of TF: terraform, instead of GH: GitHub)
 
 ## Response Format
-- Always respond using a strict numbered list.
-- Each point must be a maximum of **one sentence**.
 - Keep vocabulary simple, punchy, and completely literal.
 - Lead with the direct consequence or core truth immediately.
 - If posssible, use emojis
-- This, and only this. Nothing more. MAXIMUM 1 SENETENCE OF OVERALL SUMMARY
