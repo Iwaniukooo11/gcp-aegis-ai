@@ -1,7 +1,7 @@
 # Query Processor — full specification and contracts
 
 Document version: requirements triage (2026-05).  
-Replaces the M1 **Metrics Service** role; Terraform may still use `aegis-metrics-service` / `METRICS_SERVICE_URL` until renamed.
+Replaces the M1 **Metrics Service** role; Terraform may still use service name `aegis-metrics-service` until renamed.
 
 ---
 
@@ -58,16 +58,16 @@ Slack UX is owned by Slack Gateway. Query Processor exposes **two REST operation
 
 | Slack behavior (product) | Query Processor operation |
 |--------------------------|---------------------------|
-| User **app mention** in context of an incident (passes `incident_id` + message) | `POST /v1/incidents/{incidentId}/query` |
-| **`/aegis incidents latest`** (or equivalent) with optional limit | `GET /v1/incidents/latest?limit=N` |
+| User **app mention** in context of an incident (passes `incident_id` + text) | `POST /v1/incidents/{incidentId}/query` |
+| App mention text with `latest` command | `GET /v1/incidents/latest?limit=N` |
 
-**Out of scope for Query Processor (MVP):** `/aegis status`, `/aegis explain`, `/aegis help`, slash parsing, thread/session mapping by Slack `thread_ts` (threads are **disregarded**; session key is **`incident_id` only**).
+**Out of scope for Query Processor (MVP):** `/aegis status`, `/aegis explain`, `/aegis help`, thread/session mapping by Slack `thread_ts` (threads are **disregarded**; session key is **`incident_id` only**).
 
 ---
 
 ## 3. HTTP API (Slack Gateway → Query Processor)
 
-Base URL: Cloud Run service URI (today: `aegis-metrics-service`; env on Gateway: `METRICS_SERVICE_URL`).
+Base URL: Cloud Run service URI (today: `aegis-metrics-service`; env on Gateway: `QUERY_PROCESSOR_URL`).
 
 All paths prefixed with `/v1/`.  
 **Content-Type:** `application/json` for bodies and responses.
@@ -95,7 +95,7 @@ For `4xx` / `5xx` (except empty `404` if you choose minimal body), body:
 {
   "error_code": "SESSION_NOT_FOUND",
   "message": "Human-readable explanation for logs and Gateway mapping",
-  "incident_id": "INC-2026-00041",
+  "incident_id": "INC-2026-000041",
   "request_id": "optional-uuid"
 }
 ```
@@ -104,7 +104,7 @@ For `4xx` / `5xx` (except empty `404` if you choose minimal body), body:
 
 | HTTP | `error_code` (suggested) | When |
 |------|--------------------------|------|
-| 400 | `INVALID_REQUEST` | Missing/empty `message`, `limit` out of range, malformed `incident_id` |
+| 400 | `INVALID_REQUEST` | Missing/empty `text`, `limit` out of range, malformed `incident_id` |
 | 404 | `SESSION_NOT_FOUND` | No Firestore document `sessions/{incident_id}` |
 | 403 | `PROJECT_NOT_ALLOWED` | Session references client project not in `ALLOWED_CLIENT_PROJECT_IDS` |
 | 502 | `GEMINI_INVALID_PLAN` | Gemini #1 output fails JSON schema validation |
@@ -144,7 +144,7 @@ No request body. No Firestore. No Gemini.
 ### 4.3 BigQuery contract
 
 - **Dataset / table:** `aegis_incidents.incidents` (env: `BIGQUERY_DATASET`, `BIGQUERY_INCIDENTS_TABLE`).
-- **Filter:** `terminal_status = 'SUCCESS'` only.
+- **Filter:** `terminal_status IN ('SUCCESS', 'PARTIAL_SUCCESS')`.
 - **Order:** `created_at DESC`.
 - **Limit:** query parameter (default 10).
 
@@ -161,7 +161,7 @@ SELECT
   short_message,
   ai_summary
 FROM `{hub_project}.aegis_incidents.incidents`
-WHERE terminal_status = 'SUCCESS'
+WHERE terminal_status IN ('SUCCESS', 'PARTIAL_SUCCESS')
 ORDER BY created_at DESC
 LIMIT @limit
 ```
@@ -176,7 +176,7 @@ LIMIT @limit
   "count": 3,
   "incidents": [
     {
-      "incident_id": "INC-2026-00041",
+      "incident_id": "INC-2026-000041",
       "created_at": "2026-04-26T16:56:00Z",
       "client_project_id": "mock-client-dev",
       "service_name": "java-api",
@@ -217,7 +217,7 @@ LIMIT @limit
 
 ### 5.1 Purpose
 
-Handle a **follow-up user message** about a specific incident: load conversation, plan metrics, fetch from Monitoring, analyze, produce **ready-to-post Slack Markdown**, persist turns in Firestore.
+Handle a **follow-up user message** about a specific incident: load conversation, parse the provided text, plan metrics, fetch from Monitoring, analyze, produce **ready-to-post Slack Markdown**, persist turns in Firestore.
 
 **Important:** `incident_id` is used to load **Firestore only**, not BigQuery, on this path. If the session does not exist, return **404** so Gateway can inform the user.
 
@@ -237,13 +237,15 @@ POST /v1/incidents/{incidentId}/query
 
 ```json
 {
-  "message": "Why is memory still high after the restart?"
+  "text": "Why is memory still high after the restart?"
 }
 ```
 
 | Field | Required | Rules |
 |-------|----------|--------|
-| `message` | yes | Non-empty after trim; max length TBD (recommend 4000 chars) |
+| `text` | yes | Non-empty after trim; max length TBD (recommend 4000 chars) |
+
+Slack Gateway extracts only `incident_id` and `text` from the app mention before calling Query Processor.
 
 Optional future fields (not MVP): `slack_user_id`, `slack_channel_id` for audit only.
 
@@ -259,7 +261,7 @@ sequenceDiagram
   participant G2 as Gemini analysis
   participant G3 as Gemini Slack format
 
-  SG->>QP: POST .../query {message}
+  SG->>QP: POST .../query {text}
   QP->>FS: Get sessions/{incident_id}
   alt session missing
     QP-->>SG: 404 SESSION_NOT_FOUND
@@ -298,7 +300,7 @@ sequenceDiagram
 
 ```json
 {
-  "incident_id": "INC-2026-00041",
+  "incident_id": "INC-2026-000041",
   "slack_text": "*Aegis* — java-api (mock-client-dev)\n\n**Status:** Memory still elevated...\n\n**Likely causes:**\n1. ...\n\n**Suggested checks:**\n- ...",
   "session_updated": true,
   "metrics_fetched": true,
@@ -333,7 +335,7 @@ Use Slack-compatible Markdown: `*bold*`, `_italic_`, bullets; avoid tables if un
 | Condition | HTTP | Gateway action |
 |-----------|------|----------------|
 | No `sessions/{incident_id}` | **404** | User-facing: unknown incident / no active session |
-| Empty `message` | 400 | Usage hint |
+| Empty `text` | 400 | Usage hint |
 | Client project not allowed | 403 | Config error message |
 | Gemini #1 invalid JSON | 502 | Generic “try again” |
 | Monitoring hard failure | 503 or 200 degraded* | *Product choice: prefer 503 for MVP |
@@ -415,7 +417,7 @@ May be stored in Firestore as part of assistant `content` or a dedicated `last_a
 
 ### 6.3 Gemini #3 — Slack formatter
 
-**Input:** User message, conversation snippet, Gemini #2 output, `MetricResults`.
+**Input:** User text, conversation snippet, Gemini #2 output, `MetricResults`.
 
 **Output:** Plain string → HTTP `slack_text`. No additional JSON wrapper required from the model; Query Processor assigns the string to the response field.
 
@@ -425,7 +427,7 @@ May be stored in Firestore as part of assistant `content` or a dedicated `last_a
 
 Database: Hub Firestore (`FIRESTORE_DATABASE` env, collection `sessions`, TTL on field `ttl` per `terraform/aegis-hub/main.tf`).
 
-Document id: **`{incident_id}`** (e.g. `INC-2026-00041`). One session per incident; **Slack threads are not** session keys.
+Document id: **`{incident_id}`** (e.g. `INC-2026-000041`). One session per incident; **Slack threads are not** session keys.
 
 ### 7.1 Incident Analyzer — create (write-once per incident)
 
@@ -435,7 +437,7 @@ When an incident is first processed and alerted, Incident Analyzer **must** crea
 
 ```json
 {
-  "incident_id": "INC-2026-00041",
+  "incident_id": "INC-2026-000041",
   "client_project_id": "mock-client-dev",
   "service_name": "java-api",
   "cluster_name": "mock-gke-autopilot",
@@ -446,7 +448,7 @@ When an incident is first processed and alerted, Incident Analyzer **must** crea
   "messages": [
     {
       "role": "model",
-      "content": "Incident INC-2026-00041: java-api reported OutOfMemoryError. Initial AI summary: ..."
+      "content": "Incident INC-2026-000041: java-api reported OutOfMemoryError. Initial AI summary: ..."
     }
   ],
   "created_at": "2026-04-26T16:56:05Z",
@@ -470,7 +472,7 @@ When an incident is first processed and alerted, Incident Analyzer **must** crea
 ### 7.2 Query Processor — read/update
 
 - **Read** at start of `POST .../query`.
-- **Append** `{ "role": "user", "content": "<message>" }` after validation.
+- **Append** `{ "role": "user", "content": "<text>" }` after validation.
 - **Append** `{ "role": "model", "content": "<slack_text or summary>" }` after Gemini #3 (may also persist structured analysis).
 - **Update** `updated_at` and extend `ttl` on each successful turn.
 - **Never** create a new session document (404 if missing).
@@ -509,12 +511,12 @@ Hub bot roles: `bigquery.dataEditor`, `bigquery.jobUser` (shared SA; Query Proce
 
 | Slack trigger (product) | HTTP call |
 |-------------------------|-----------|
-| Latest incidents command | `GET /v1/incidents/latest?limit=N` |
+| App mention text that asks for latest incidents | `GET /v1/incidents/latest?limit=N` |
 | App mention with `incident_id` + user text | `POST /v1/incidents/{incidentId}/query` |
 
 Gateway responsibilities:
 
-1. Parse Slack payload and extract `incident_id` and `message` (Gateway concern).
+1. Parse Slack payload only enough to extract `incident_id` and `text`.
 2. Obtain identity token for Query Processor URL.
 3. Call REST; on **404**, send Slack message: session/incident not found (exact copy is product wording).
 4. On **200** for query: post `slack_text` via Slack Web API.
@@ -570,7 +572,7 @@ Slack secrets are **not** on Query Processor.
 | Topic | Decision deferred to implementation |
 |-------|-------------------------------------|
 | `MAX_LIMIT` for latest incidents | Suggest 25 |
-| Max `message` length | Suggest 4000 |
+| Max `text` length | Suggest 4000 |
 | Degraded reply when Monitoring partial failure | 200 with `metrics_fetched: false` vs 503 |
 | Persist Gemini #2 JSON vs only final `slack_text` in Firestore | Team choice |
 | Exact Monitoring MQL per `MetricFetchPlan.type` | GKE Autopilot demo alignment |

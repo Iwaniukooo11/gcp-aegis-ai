@@ -12,7 +12,7 @@ The **Slack Gateway** is a public Cloud Run service in the **Aegis Hub** project
 **Core responsibilities:**
 
 - Receive Slack bot mentions (`app_mention` events) from Slack Events API
-- Parse structured user input (incident queries, latest incidents requests)
+- Extract `incident_id` and raw user text from Slack mentions
 - Forward parsed requests to Query Processor via REST
 - Receive alert payloads from Incident Analyzer via internal HTTP endpoint
 - Post all responses and alerts to Slack channels/threads
@@ -64,16 +64,16 @@ Users interact with Aegis AI exclusively through Slack bot mentions. Slack Gatew
 **Slack user action:**
 
 ```
-@aegis-bot INC-2026-00041 why is memory high
+@aegis-bot INC-2026-000041 why is memory high
 ```
 
 **Gateway responsibility:**
 
 1. Receive `app_mention` event from Slack Events API
 2. Extract `incident_id` (first token after bot mention)
-3. Extract `message` (remaining text)
-4. Validate structure (must have both incident ID and message)
-5. Call Query Processor: `POST /v1/incidents/{incident_id}/query` with `{"message": "why is memory high"}`
+3. Extract `text` (remaining text)
+4. Validate structure (must have both incident ID and text)
+5. Call Query Processor: `POST /v1/incidents/{incident_id}/query` with `{"text": "why is memory high"}`
 6. On 200: post `slack_text` from response to same Slack thread
 7. On 404/4xx/5xx: post human-readable error to Slack
 
@@ -87,15 +87,15 @@ Users interact with Aegis AI exclusively through Slack bot mentions. Slack Gatew
 
 **Gateway responsibility:**
 
-1. Detect keyword `latest` in mention text
-2. Parse limit number (default: 10 if not specified)
+1. Route mentions without an incident ID to latest incidents handling
+2. Let Query Processor parse the limit number from raw text (default: 10 if not specified)
 3. Call Query Processor: `GET /v1/incidents/latest?limit=10`
 4. Format JSON response into readable Slack message:
   ```
    Latest incidents:
   ```
-  1. INC-2026-00041 | java-api | OutOfMemoryError | Critical | 4 min ago
-  2. INC-2026-00040 | python-worker | TimeoutError | Warning | 19 min ago
+  1. INC-2026-000041 | java-api | OutOfMemoryError | ERROR | Java heap space
+  2. INC-2026-000040 | python-worker | TimeoutError | WARNING | Worker timeout
     .
     `
 5. Post formatted text to Slack thread/channel
@@ -107,8 +107,8 @@ When a new incident is detected and stored in BigQuery, Analyzer creates initial
 
 **Gateway responsibility:**
 
-1. Receive `POST /internal/v1/alerts` from Incident Analyzer (private, authenticated)
-2. Extract `text`, `channel_id`, optional `thread_ts`
+1. Receive `POST /v1/internal/incidents/alert` from Incident Analyzer (private, authenticated)
+2. Extract `formatted_message`, fallback to `fallback_text`, and choose Slack destination channel
 3. Post message to Slack using `chat.postMessage` API
 4. Return 200 on success, 5xx on Slack API failure
 
@@ -132,7 +132,7 @@ When a new incident is detected and stored in BigQuery, Analyzer creates initial
   "event": {
     "type": "app_mention",
     "user": "U123456",
-    "text": "<@U987654> INC-2026-00041 why is memory high",
+    "text": "<@U987654> INC-2026-000041 why is memory high",
     "ts": "1653412345.000100",
     "channel": "C123456",
     "thread_ts": "1653410000.000000"
@@ -156,14 +156,14 @@ When a new incident is detected and stored in BigQuery, Analyzer creates initial
 **Processing:**
 
 1. Check `event.type == "app_mention"`
-2. Parse `event.text`: strip bot user ID mention, extract incident ID and message
-3. Determine flow: `latest` keyword → latest incidents, otherwise → incident query
+2. Parse `event.text`: strip bot user ID mention, extract optional incident ID and remaining text
+3. Determine only the routing shape: valid incident ID means incident query, otherwise latest incidents
 4. Call Query Processor (async, no blocking)
 5. Post response to Slack using `event.channel` and optional `event.thread_ts`
 
 ### 3.2 Inbound: Incident Analyzer → Gateway
 
-**Endpoint:** `POST /internal/v1/alerts`
+**Endpoint:** `POST /v1/internal/incidents/alert`
 
 **Purpose:** Post incident alerts to Slack on behalf of Incident Analyzer
 
@@ -175,8 +175,18 @@ When a new incident is detected and stored in BigQuery, Analyzer creates initial
 
 ```json
 {
-  "channel_id": "C123456",
-  "text": "🚨 New incident detected:\n**INC-2026-00041** | java-api | OutOfMemoryError\nSeverity: Critical\n\nReply with: @aegis-bot INC-2026-00041 <your question>",
+  "incident_id": "INC-2026-000041",
+  "client_project_id": "mock-client-dev",
+  "service_name": "java-api",
+  "severity": "ERROR",
+  "error_type": "OutOfMemoryError",
+  "short_message": "Java heap space",
+  "sanitized_stack_trace_preview": "java.lang.OutOfMemoryError: Java heap space ...",
+  "ai_summary": "The service likely exhausted heap memory after a recent spike.",
+  "ai_recommendation": "Inspect memory limits and recent deploy changes.",
+  "formatted_message": "*Incident* INC-2026-000041 ...",
+  "fallback_text": "Incident INC-2026-000041 in mock-client-dev/java-api with severity ERROR was detected, but AI analysis is currently unavailable.",
+  "channel_id": null,
   "thread_ts": null
 }
 ```
@@ -210,7 +220,7 @@ X-Request-Id: <uuid>
 
 ```json
 {
-  "message": "why is memory high"
+  "text": "why is memory high"
 }
 ```
 
@@ -218,9 +228,11 @@ X-Request-Id: <uuid>
 
 ```json
 {
-  "incident_id": "INC-2026-00041",
+  "incident_id": "INC-2026-000041",
   "slack_text": "Memory is high because...\n\nRecommended actions:\n1. Check heap dumps\n2. Review recent deployments",
-  "timestamp": "2026-05-20T21:30:00Z"
+  "session_updated": true,
+  "metrics_fetched": true,
+  "processing_ms": 8420
 }
 ```
 
@@ -251,25 +263,28 @@ X-Request-Id: <uuid>
 {
   "incidents": [
     {
-      "incident_id": "INC-2026-00041",
+      "incident_id": "INC-2026-000041",
       "client_project_id": "mock-client-dev",
       "service_name": "java-api",
       "error_type": "OutOfMemoryError",
-      "severity": "Critical",
-      "timestamp": "2026-05-20T21:26:00Z",
-      "minutes_ago": 4
+      "severity": "ERROR",
+      "created_at": "2026-05-20T21:26:00Z",
+      "short_message": "Java heap space",
+      "ai_summary": "Optional one-line from analyzer"
     },
     {
-      "incident_id": "INC-2026-00040",
+      "incident_id": "INC-2026-000040",
       "client_project_id": "mock-client-dev",
       "service_name": "python-worker",
       "error_type": "TimeoutError",
-      "severity": "Warning",
-      "timestamp": "2026-05-20T21:11:00Z",
-      "minutes_ago": 19
+      "severity": "WARNING",
+      "created_at": "2026-05-20T21:11:00Z",
+      "short_message": "Worker timeout",
+      "ai_summary": "Optional one-line from analyzer"
     }
   ],
-  "total": 2
+  "count": 2,
+  "limit": 10
 }
 ```
 
@@ -325,7 +340,7 @@ X-Request-Id: <uuid>
 **Expected structure:**
 
 ```
-@bot-name INCIDENT_ID MESSAGE
+@bot-name INCIDENT_ID TEXT
 ```
 
 or
@@ -339,13 +354,13 @@ or
 1. Strip bot user ID mention (e.g. `<@U987654>`) from `event.text`
 2. Split remaining text by whitespace: `tokens = text.strip().split()`
 3. **Latest incidents path:**
-  - If `tokens[0].lower() == "latest"`: extract `limit = int(tokens[1])` if exists, else default 10
-  - Call `GET /v1/incidents/latest?limit={limit}`
+  - If no valid incident ID is present, call Query Processor latest incidents handling
+  - Call `GET /v1/incidents/latest?limit={limit}` after applying Query Processor parsing rules
 4. **Incident query path:**
   - Extract `incident_id = tokens[0]`
-  - Validate format: must match pattern `INC-\d{4}-\d{5}` (e.g. `INC-2026-00041`)
-  - Extract `message = " ".join(tokens[1:])` (everything after incident ID)
-  - If `message` is empty: post error "Invalid format. Usage: @bot INC-XXXX-XXXXX your question"
+  - Validate format: must match pattern `INC-\d{4}-\d{6}` (e.g. `INC-2026-000041`)
+  - Extract `text = " ".join(tokens[1:])` (everything after incident ID)
+  - If `text` is empty: post error "Invalid format. Usage: @bot INC-XXXX-XXXXXX your question"
   - Call `POST /v1/incidents/{incident_id}/query`
 
 ### 4.2 Latest incidents formatting
@@ -356,14 +371,16 @@ or
 {
   "incidents": [
     {
-      "incident_id": "INC-2026-00041",
+      "incident_id": "INC-2026-000041",
       "service_name": "java-api",
       "error_type": "OutOfMemoryError",
-      "severity": "Critical",
-      "minutes_ago": 4
+      "severity": "ERROR",
+      "created_at": "2026-05-20T21:26:00Z",
+      "short_message": "Java heap space"
     }
   ],
-  "total": 1
+  "count": 1,
+  "limit": 10
 }
 ```
 
@@ -372,15 +389,15 @@ or
 ```
 📋 Latest incidents (1 total):
 
-1. INC-2026-00041 | java-api | OutOfMemoryError | Critical | 4 min ago
+1. INC-2026-000041 | java-api | OutOfMemoryError | ERROR | Java heap space
 ```
 
 **Formatting rules:**
 
 - Add emoji prefix: 📋
-- Header: "Latest incidents ({total} total):"
-- Each incident: numbered list with format `{id} | {service} | {error_type} | {severity} | {minutes_ago} min ago`
-- If `total == 0`: "No recent incidents found."
+- Header: "Latest incidents ({count} total):"
+- Each incident: numbered list with format `{id} | {service} | {error_type} | {severity} | {short_message}`
+- If `count == 0`: "No recent incidents found."
 
 ### 4.3 Error message mapping
 
@@ -388,12 +405,12 @@ or
 | Query Processor error                                 | Slack user message                                                                                                                                 |
 | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 404 `SESSION_NOT_FOUND`                               | "❌ Incident `{incident_id}` not found. Please check the incident ID."                                                                              |
-| 400 `INVALID_REQUEST`                                 | "❌ Invalid request format. Usage: `@aegis-bot INC-XXXX-XXXXX your question`"                                                                       |
+| 400 `INVALID_REQUEST`                                 | "❌ Invalid request format. Usage: `@aegis-bot INC-XXXX-XXXXXX your question`"                                                                      |
 | 403 `PROJECT_NOT_ALLOWED`                             | "❌ Access denied to the specified project."                                                                                                        |
 | 502 `GEMINI_INVALID_PLAN` / `GEMINI_INVALID_RESPONSE` | "❌ AI analysis failed. Please try again."                                                                                                          |
 | 503 `DEPENDENCY_UNAVAILABLE`                          | "❌ Service temporarily unavailable. Please try again in a moment."                                                                                 |
 | 504 `PROCESSING_TIMEOUT`                              | "❌ Request timed out. Please try again."                                                                                                           |
-| Gateway parsing error                                 | "❌ Invalid message format. Use:\n• `@aegis-bot INC-XXXX-XXXXX your question` for incident queries\n• `@aegis-bot latest [N]` for recent incidents" |
+| Gateway parsing error                                 | "❌ Invalid message format. Use:\n• `@aegis-bot INC-XXXX-XXXXXX your question` for incident queries\n• `@aegis-bot latest [N]` for recent incidents" |
 
 
 ---
@@ -529,7 +546,7 @@ headers = {"Authorization": f"Bearer {token}"}
   "severity": "INFO",
   "message": "Received app_mention event",
   "trace": "projects/{project}/traces/{trace_id}",
-  "incident_id": "INC-2026-00041",
+  "incident_id": "INC-2026-000041",
   "slack_user": "U123456",
   "slack_channel": "C123456",
   "request_id": "uuid"
@@ -646,7 +663,7 @@ resource "google_cloud_run_v2_service" "slack_gateway" {
 
 ### 12.3 Manual testing checklist
 
-- Send `@bot INC-2026-00041 test message` in Slack → verify Query Processor receives call
+- Send `@bot INC-2026-000041 test message` in Slack → verify Query Processor receives call
 - Send `@bot latest 5` → verify formatted list appears in Slack
 - Send `@bot invalid format` → verify error message appears
 - Trigger incident in client project → verify alert appears in Slack
@@ -690,7 +707,7 @@ resource "google_cloud_run_v2_service" "slack_gateway" {
 | Async vs sync HTTP calls                       | `httpx.AsyncClient` vs `requests`                             | Async (better concurrency for Cloud Run)        |
 | Error response format to user                  | Plain text vs structured mrkdwn                               | Plain text (simpler, mrkdwn can be added later) |
 | Latest incidents default limit                 | 5, 10, or 25                                                  | 10 (aligns with Query Processor default)        |
-| Incident Analyzer alert endpoint path          | `/internal/v1/alerts` vs `/v1/alerts`                         | `/internal/v1/alerts` (signals private API)     |
+| Incident Analyzer alert endpoint path          | `/v1/internal/incidents/alert` vs `/internal/v1/alerts`        | `/v1/internal/incidents/alert`                  |
 | Store default Slack channel in code vs env var | Hardcode vs `DEFAULT_SLACK_CHANNEL_ID`                        | Env var (easier to change per environment)      |
 
 
@@ -710,7 +727,7 @@ resource "google_cloud_run_v2_service" "slack_gateway" {
 - `POST /slack/events` endpoint
 - URL verification handler (`type: url_verification`)
 - `app_mention` event parsing
-- Message format validation and splitting (incident ID + message vs `latest`)
+- Message format validation and splitting (incident ID + text vs latest path)
 
 ### Phase 3: Query Processor integration
 
@@ -727,7 +744,7 @@ resource "google_cloud_run_v2_service" "slack_gateway" {
 
 ### Phase 5: Incident Analyzer integration
 
-- `POST /internal/v1/alerts` endpoint
+- `POST /v1/internal/incidents/alert` endpoint
 - OIDC token verification (Cloud Run authentication)
 - Forward alert to Slack
 
@@ -752,26 +769,28 @@ resource "google_cloud_run_v2_service" "slack_gateway" {
 ### Flow 1: User asks incident question
 
 ```
-1. User in Slack: "@aegis-bot INC-2026-00041 why is memory spiking"
+1. User in Slack: "@aegis-bot INC-2026-000041 why is memory spiking"
 2. Slack → Gateway: POST /slack/events
    {
      "type": "event_callback",
      "event": {
        "type": "app_mention",
-       "text": "<@U987654> INC-2026-00041 why is memory spiking",
+       "text": "<@U987654> INC-2026-000041 why is memory spiking",
        "channel": "C123456",
        "thread_ts": "1653410000.000000"
      }
    }
-3. Gateway: Parse → incident_id="INC-2026-00041", message="why is memory spiking"
-4. Gateway → Query Processor: POST /v1/incidents/INC-2026-00041/query
+3. Gateway: Parse → incident_id="INC-2026-000041", text="why is memory spiking"
+4. Gateway → Query Processor: POST /v1/incidents/INC-2026-000041/query
    Authorization: Bearer <oidc_token>
-   {"message": "why is memory spiking"}
+   {"text": "why is memory spiking"}
 5. Query Processor → Gateway: 200 OK
    {
-     "incident_id": "INC-2026-00041",
+     "incident_id": "INC-2026-000041",
      "slack_text": "Memory spiking due to...\n\nActions:\n1. Check heap\n2. Review config",
-     "timestamp": "..."
+     "session_updated": true,
+     "metrics_fetched": true,
+     "processing_ms": 8420
    }
 6. Gateway → Slack: POST https://slack.com/api/chat.postMessage
    Authorization: Bearer <slack_bot_token>
@@ -794,12 +813,13 @@ resource "google_cloud_run_v2_service" "slack_gateway" {
 5. Query Processor → Gateway: 200 OK
    {
      "incidents": [
-       {"incident_id": "INC-2026-00041", "service_name": "java-api", ...},
+       {"incident_id": "INC-2026-000041", "service_name": "java-api", ...},
        ...
      ],
-     "total": 5
+     "count": 5,
+     "limit": 5
    }
-6. Gateway: Format JSON → "📋 Latest incidents (5 total):\n\n1. INC-2026-00041 | java-api | ..."
+6. Gateway: Format JSON → "📋 Latest incidents (5 total):\n\n1. INC-2026-000041 | java-api | ..."
 7. Gateway → Slack: POST chat.postMessage with formatted text
 8. Done
 ```
@@ -808,11 +828,12 @@ resource "google_cloud_run_v2_service" "slack_gateway" {
 
 ```
 1. Incident Analyzer: Detects new incident, stores in BigQuery + Firestore
-2. Analyzer → Gateway: POST /internal/v1/alerts
+2. Analyzer → Gateway: POST /v1/internal/incidents/alert
    Authorization: Bearer <oidc_token>
    {
      "channel_id": "C123456",
-     "text": "🚨 New incident:\n**INC-2026-00041** | java-api | OOM\nReply: @aegis-bot INC-2026-00041 <question>"
+     "formatted_message": "🚨 New incident:\n**INC-2026-000041** | java-api | OOM\nReply: @aegis-bot INC-2026-000041 <question>",
+     "fallback_text": "Incident INC-2026-000041 in mock-client-dev/java-api with severity ERROR was detected, but AI analysis is currently unavailable."
    }
 3. Gateway: Verify OIDC token
 4. Gateway → Slack: POST chat.postMessage
