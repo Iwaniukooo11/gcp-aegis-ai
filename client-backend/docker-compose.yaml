@@ -1,0 +1,48 @@
+services:
+  java-api:
+    build:
+      context: ./apps/java-api
+    ports:
+      - "8080:8080"
+    environment:
+      SERVICE_NAME: java-api
+      CLIENT_PROJECT_ID: ${CLIENT_PROJECT_ID:-aegis-client-420}
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+      TEAM: ${TEAM:-demo}
+      CHAOS_ENABLED: ${CHAOS_ENABLED:-true}
+      CHAOS_AUTO_MODE: ${CHAOS_AUTO_MODE:-false}
+      ALLOW_DESTRUCTIVE_CHAOS: ${ALLOW_DESTRUCTIVE_CHAOS:-false}
+      CHAOS_MAX_SLOW_SECONDS: ${CHAOS_MAX_SLOW_SECONDS:-30}
+      CHAOS_MAX_PRICING_5XX_SECONDS: ${CHAOS_MAX_PRICING_5XX_SECONDS:-300}
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75.0"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/healthz/ready"]
+      interval: 5s
+      timeout: 2s
+      retries: 20
+      start_period: 20s
+
+  python-api:
+    build:
+      context: ./apps/python-api
+    ports:
+      - "8000:8000"
+    environment:
+      SERVICE_NAME: python-api
+      CLIENT_PROJECT_ID: ${CLIENT_PROJECT_ID:-aegis-client-420}
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+      TEAM: ${TEAM:-demo}
+      CHAOS_ENABLED: ${CHAOS_ENABLED:-true}
+      CHAOS_AUTO_MODE: ${CHAOS_AUTO_MODE:-false}
+      ALLOW_DESTRUCTIVE_CHAOS: ${ALLOW_DESTRUCTIVE_CHAOS:-false}
+      JAVA_API_BASE_URL: ${JAVA_API_BASE_URL:-http://java-api:8080}
+      JAVA_API_TIMEOUT_MS: ${JAVA_API_TIMEOUT_MS:-1000}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/healthz/ready"]
+      interval: 5s
+      timeout: 2s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      java-api:
+        condition: service_healthy
