@@ -9,5 +9,6 @@ override.tf.json
 *_override.tf
 *_override.tf.json
 
+.idea
 
 .llm_context/

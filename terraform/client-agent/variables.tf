@@ -47,12 +47,12 @@ variable "hub_pubsub_topic_name" {
   default     = "aegis-incoming-logs"
 }
 
-variable "hub_bot_service_account_email" {
-  description = "The email of the Hub's bot service account"
+variable "hub_query_processor_service_account_email" {
+  description = "The email of the Hub Query Processor service account"
   type        = string
 
   validation {
-    condition     = can(regex("^[a-z][a-z0-9-]+@[a-z][a-z0-9-]{4,28}[a-z0-9]\\.iam\\.gserviceaccount\\.com$", var.hub_bot_service_account_email))
-    error_message = "hub_bot_service_account_email must be a valid service account email."
+    condition     = can(regex("^[a-z][a-z0-9-]+@[a-z][a-z0-9-]{4,28}[a-z0-9]\\.iam\\.gserviceaccount\\.com$", var.hub_query_processor_service_account_email))
+    error_message = "hub_query_processor_service_account_email must be a valid service account email."
   }
 }

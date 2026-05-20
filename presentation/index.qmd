@@ -1,0 +1,630 @@
+---
+pagetitle: "Aegis AI Project Plan"
+html-math-method: plain
+format:
+  revealjs:
+    embed-resources: true
+    theme: [default, theme.scss]
+    slide-number: c/t
+    show-slide-number: all
+    progress: true
+    controls: true
+    controls-layout: edges
+    transition: fade
+    background-transition: fade
+    width: 1280
+    height: 720
+    margin: 0.06
+    center: false
+    auto-stretch: false
+    hash: true
+    footer: "Aegis AI | GCP Cloud Computing Semester Project"
+---
+
+## Aegis AI {.hero-slide .hide-title footer=false}
+
+<div class="hero-lockup">
+<p class="eyebrow">M1 plan checkpoint | Google Cloud Platform</p>
+<h1>Aegis AI</h1>
+<p class="hero-subtitle">A serverless, cross-project ChatOps/SRE bot that turns client-side error logs into actionable Slack incident context.</p>
+<div class="hero-pills"><span>Cloud Run</span><span>Pub/Sub</span><span>BigQuery</span><span>Firestore</span><span>Vertex AI Gemini</span></div>
+</div>
+
+::: {.notes}
+Open with the problem: incidents in one project should not take down the tool that helps diagnose them. Aegis AI separates the monitoring assistant from the failing client environment and uses managed GCP services to keep the prototype practical for a semester project.
+:::
+
+## What We Are Presenting
+
+:::: {.arc}
+::: {.arc-step}
+[1]{.arc-num}
+
+<h3>Problem</h3>
+
+How to observe and explain failures from a separate GCP project.
+:::
+
+::: {.arc-step}
+[2]{.arc-num}
+
+<h3>Architecture</h3>
+
+Hub project, client project, event pipeline, and Slack operator loop.
+:::
+
+::: {.arc-step}
+[3]{.arc-num}
+
+<h3>Reliability</h3>
+
+At-least-once processing, deduplication, storage, SLOs, and security.
+:::
+
+::: {.arc-step}
+[4]{.arc-num}
+
+<h3>Demo Plan</h3>
+
+Trigger a failure, receive an alert, and ask the bot for service status.
+:::
+::::
+
+::: {.notes}
+Suggested timing: this is a 10 to 12 minute presentation. Spend roughly 2 minutes on motivation, 5 minutes on architecture, 3 minutes on reliability/security, and 2 minutes on demo and team plan.
+:::
+
+## The Problem We Want to Solve
+
+:::: {.columns .vcenter}
+::: {.column width="45%"}
+::: {.statement-card .accent-red}
+[Operational pain]{.label}
+
+<h3>Errors appear before context does.</h3>
+
+Logs, metrics, deployment state, and alerts often live in different places. During a failure, engineers need a fast path from signal to explanation.
+:::
+:::
+
+::: {.column width="55%"}
+<div class="proof-list">
+  <div><strong>Cross-project monitoring</strong><span>Client failures flow into an independent Hub.</span></div>
+  <div><strong>ChatOps interface</strong><span>Slack becomes the operator console for status and incident context.</span></div>
+  <div><strong>AI-assisted triage</strong><span>Gemini can summarize likely cause and suggested next steps.</span></div>
+  <div><strong>Cloud-native constraints</strong><span>Serverless, IAM, Terraform, cost control, and measurable reliability.</span></div>
+</div>
+:::
+::::
+
+::: {.notes}
+Frame this as a realistic cloud computing project, not a toy chatbot. The project combines event-driven architecture, observability, storage design, secure cross-project access, and a user-facing workflow.
+:::
+
+## One-Sentence System
+
+::: {.big-thesis}
+When a monitored client service fails, Aegis AI receives the filtered error event, stores a sanitized incident record, alerts Slack, and lets engineers ask follow-up questions with short-term context.
+:::
+
+:::: {.flowline}
+::: {.flow-node .source}
+<span>Client GKE</span>
+**Error log**
+:::
+
+::: {.flow-node}
+<span>Cloud Logging</span>
+**Sink filter**
+:::
+
+::: {.flow-node}
+<span>Pub/Sub</span>
+**Buffered event**
+:::
+
+::: {.flow-node}
+<span>Cloud Run</span>
+**Analyze**
+:::
+
+::: {.flow-node .sink}
+<span>Slack + BigQuery</span>
+**Alert + audit**
+:::
+::::
+
+::: {.notes}
+The main design idea is independence. The monitored client can fail aggressively during the demo, while the Hub remains the reliable control plane for alerting and diagnostics.
+:::
+
+## Goals and Boundaries
+
+:::: {.columns}
+::: {.column width="50%"}
+<h3 class="subhead">Goals</h3>
+
+- Receive and analyze error events from a separate client project.
+- Demonstrate secure cross-project observability with IAM.
+- Use managed GCP services: Cloud Run, Pub/Sub, BigQuery, Firestore, Vertex AI, Logging, and Monitoring.
+- Provide Slack interaction with short-term session memory.
+- Define measurable SLI/SLO/SLA targets.
+- Manage infrastructure with Terraform.
+:::
+
+::: {.column width="50%"}
+<h3 class="subhead muted">Non-goals</h3>
+
+- Commercial SaaS or multi-cloud platform.
+- Five-nines availability.
+- Full raw-log retention.
+- Highly available mock client GKE environment.
+- Full incident remediation automation in M1.
+- Unlimited AI calls or uncontrolled cloud spend.
+:::
+::::
+
+::: {.notes}
+Make the scope explicit. This helps defend the architecture: the Hub is the service under reliability measurement, while the client project is intentionally allowed to fail.
+:::
+
+## Architecture: Two Trust Domains
+
+:::: {.architecture-map}
+::: {.domain .hub-domain}
+::: {.domain-title}
+Aegis Hub Project
+:::
+
+:::: {.service-grid}
+::: {.service-chip}
+Slack Gateway
+:::
+::: {.service-chip}
+Incident Analyzer
+:::
+::: {.service-chip}
+Metrics Service
+:::
+::: {.service-chip}
+BigQuery incidents
+:::
+::: {.service-chip}
+Firestore sessions
+:::
+::: {.service-chip}
+Secret Manager
+:::
+::::
+:::
+
+::: {.trust-bridge}
+**Filtered error logs**
+
+<span>Pub/Sub topic + least-privilege IAM</span>
+:::
+
+::: {.domain .client-domain}
+::: {.domain-title}
+Client Project
+:::
+
+:::: {.service-grid}
+::: {.service-chip}
+GKE Autopilot
+:::
+::: {.service-chip}
+Mock microservices
+:::
+::: {.service-chip}
+Chaos endpoints
+:::
+::: {.service-chip}
+Cloud Logging sink
+:::
+::: {.service-chip}
+Cloud Monitoring
+:::
+::: {.service-chip}
+Read-only IAM grants
+:::
+::::
+:::
+::::
+
+<p class="caption">The Hub owns bot logic, storage, AI enrichment, and Slack integration. The Client owns the workload that generates failures.</p>
+
+::: {.notes}
+Emphasize why the deployment model matters: the bot survives client failure, demonstrates cross-project IAM, and keeps monitoring logic isolated from the monitored environment.
+:::
+
+## Incident Pipeline
+
+:::: {.pipeline}
+::: {.stage}
+[1]{.stage-num}
+
+<h3>Filter</h3>
+
+Cloud Logging exports only `severity >= ERROR` Kubernetes container logs.
+:::
+
+::: {.stage}
+[2]{.stage-num}
+
+<h3>Buffer</h3>
+
+Pub/Sub decouples client log export from Hub analysis and absorbs bursts.
+:::
+
+::: {.stage}
+[3]{.stage-num}
+
+<h3>Normalize</h3>
+
+Incident Analyzer converts LogEntry payloads into the internal incident schema.
+:::
+
+::: {.stage}
+[4]{.stage-num}
+
+<h3>Persist</h3>
+
+BigQuery stores sanitized summaries for reporting and SLO analysis.
+:::
+
+::: {.stage}
+[5]{.stage-num}
+
+<h3>Notify</h3>
+
+Slack receives a human-readable alert, optionally enriched by Gemini.
+:::
+::::
+
+::: {.note-card .compact-callout}
+**Delivery assumption:** Pub/Sub is at-least-once, so the analyzer uses an idempotency key before posting alerts.
+:::
+
+::: {.notes}
+Explain that Pub/Sub acknowledgment alone is not enough. Success is determined by application terminal state after persistence and alert handling.
+:::
+
+## Operator Experience in Slack
+
+:::: {.columns .vcenter}
+::: {.column width="44%"}
+<div class="command-card">
+  <p class="label">Minimum command</p>
+  <code>/aegis status java-api</code>
+  <p class="label second">Optional commands</p>
+  <code>/aegis incidents latest</code>
+  <code>/aegis explain INC-2026-00041</code>
+  <code>@Aegis what changed?</code>
+</div>
+:::
+
+::: {.column width="56%"}
+<div class="slack-mock">
+  <div class="slack-header">Aegis AI status for <strong>java-api</strong></div>
+  <div class="slack-row"><span>Observed status</span><strong class="status degraded">degraded</strong></div>
+  <div class="slack-row"><span>Recent restarts</span><strong>1 pod</strong></div>
+  <div class="slack-row"><span>Memory</span><strong class="warn">high</strong></div>
+  <div class="slack-row"><span>Last error</span><strong>OutOfMemoryError, 4 min ago</strong></div>
+  <div class="slack-footer">Suggested action: inspect memory limits and recent traffic.</div>
+</div>
+:::
+::::
+
+::: {.notes}
+The Slack Gateway must acknowledge requests within 3 seconds. Longer work can continue asynchronously, using response_url or Slack message APIs for the final reply.
+:::
+
+## Hub Microservices
+
+:::: {.service-cards}
+::: {.service-card}
+[Public Cloud Run]{.label}
+
+<h3>Slack Gateway</h3>
+
+Validates Slack signatures, handles slash commands and app mentions, manages Firestore conversation context, and formats replies.
+:::
+
+::: {.service-card}
+[Private Cloud Run]{.label}
+
+<h3>Incident Analyzer</h3>
+
+Receives Pub/Sub push events, decodes LogEntry payloads, deduplicates incidents, stores summaries, and sends alerts.
+:::
+
+::: {.service-card}
+[Private Cloud Run]{.label}
+
+<h3>Metrics Service</h3>
+
+Uses read-only cross-project access to query Cloud Monitoring and Cloud Logging for current service health.
+:::
+::::
+
+<p class="caption">Separation keeps Slack request latency, incident processing retries, and metric dependencies from blocking each other.</p>
+
+::: {.notes}
+This slide defends the microservice split. Each service has a different latency profile and failure mode, so keeping them separate makes the prototype easier to reason about.
+:::
+
+## APIs and Data Contracts
+
+| Surface | Shape | Responsibility |
+|---|---|---|
+| Slack user API | HTTPS Request URL | Slash commands, app mentions, fast acknowledgments |
+| Gateway -> Metrics | `GET /v1/projects/{projectId}/services/{serviceName}/status` | Synchronous service-health summary |
+| Gateway -> Incident query | `GET /v1/incidents/latest` and `GET /v1/incidents/{id}` | Recent incident lookup |
+| Client -> Hub ingestion | Cloud Logging sink -> Pub/Sub push | Asynchronous incident events |
+
+::: {.formula-card}
+<span>Recommended idempotency key</span>
+<code>hash(client_project_id + source_log_insert_id + timestamp + pod_name)</code>
+:::
+
+::: {.notes}
+The API design is hybrid: Slack for humans, REST for synchronous internal calls, and Pub/Sub for event ingestion. The normalized incident schema is the contract that keeps storage, alerting, and reporting aligned.
+:::
+
+## Storage Design
+
+:::: {.storage-grid}
+::: {.storage-card}
+<h3>BigQuery</h3>
+
+Structured incident summaries, partitioned by `created_at` and clustered by project, service, and severity.
+
+[Retention: 1 year]{.retention}
+:::
+
+::: {.storage-card}
+<h3>Firestore</h3>
+
+Slack session context and operational deduplication documents with TTL cleanup.
+
+[Retention: about 24 hours for sessions]{.retention}
+:::
+
+::: {.storage-card}
+<h3>Pub/Sub + DLQ</h3>
+
+Short-lived buffering, retries, and dead-letter handling for malformed or repeatedly failing events.
+
+[Retention: days, not archival]{.retention}
+:::
+
+::: {.storage-card}
+<h3>Secret Manager</h3>
+
+Slack bot token and signing secret stay out of committed Terraform variables and source code.
+
+[Retention: until rotated]{.retention}
+:::
+::::
+
+::: {.notes}
+The storage story is intentionally split: BigQuery is analytical, Firestore is operational and low latency, Pub/Sub is transport, and Secret Manager handles sensitive configuration.
+:::
+
+## Reliability Targets
+
+:::: {.slo-grid}
+::: {.slo-card}
+**99.5%**
+
+Hub request 2xx availability
+:::
+
+::: {.slo-card}
+**99.0%**
+
+Slack acknowledgments within 3 seconds
+:::
+
+::: {.slo-card}
+**99.0%**
+
+Eligible incidents persisted within 60 seconds
+:::
+
+::: {.slo-card}
+**95.0%**
+
+First Slack alert within 120 seconds
+:::
+
+::: {.slo-card}
+**95.0%**
+
+`/aegis status` final reply within 15 seconds
+:::
+
+::: {.slo-card}
+**99.5%**
+
+At most one alert per idempotency key in 24 hours
+:::
+::::
+
+<p class="caption">The SLO scope is the Aegis Hub. The chaos-enabled Client Project is excluded.</p>
+
+::: {.notes}
+Point out that these SLOs are measurable with Cloud Run metrics, structured logs, and incident timestamps. Supporting targets include AI enrichment coverage, DLQ rate, and Metrics Service success rate.
+:::
+
+## Reliability Mechanisms
+
+:::: {.columns}
+::: {.column width="48%"}
+<h3 class="subhead">Managed resilience</h3>
+
+- Cloud Run autoscaling for all Hub services.
+- Pub/Sub buffering and retry policy.
+- Dead-letter topic after repeated processing failures.
+- Stateless service containers.
+- BigQuery durable incident records.
+:::
+
+::: {.column width="52%"}
+<h3 class="subhead">Application controls</h3>
+
+- Idempotency key before Slack alerting.
+- Structured terminal status fields.
+- Firestore fallback to stateless mode if session storage is unavailable.
+- Optional `min_instance_count = 1` for the Slack Gateway during the demo.
+- Budget alerts to avoid uncontrolled spending.
+:::
+::::
+
+::: {.notes}
+This slide connects GCP managed behavior with application-level responsibility. Managed services help, but correctness still requires deduplication and explicit terminal states.
+:::
+
+## Security and Privacy
+
+:::: {.security-layout}
+::: {.security-main}
+<h3>Least privilege between projects</h3>
+
+The Hub service account gets read-only access to client metrics and logs. The client log sink gets publisher access only to the Hub ingestion topic.
+:::
+
+:::: {.security-controls}
+::: {.security-control}
+**Slack requests**
+
+Validated with signing secret and Slack signature headers.
+:::
+
+::: {.security-control}
+**Secrets**
+
+Stored in Secret Manager, not committed in Terraform variables.
+:::
+
+::: {.security-control}
+**Incident data**
+
+Sanitized summaries and shortened stack previews, not full raw logs.
+:::
+
+::: {.security-control}
+**Public surface**
+
+Only Slack Gateway is public; internal services require authenticated invocation.
+:::
+::::
+::::
+
+::: {.notes}
+Security is central to the cloud architecture grade: cross-project IAM is explicit, secrets are managed, and the system avoids storing sensitive raw logs indefinitely.
+:::
+
+## Cost-Aware Scaling Path
+
+| Scaling dimension | Prototype assumption | Large-scale direction |
+|---|---|---|
+| Client projects | 1 mock client | Multiple client projects with project labels and IAM bindings |
+| Incident volume | Dozens or hundreds of test events | Pub/Sub bursts plus horizontally scaled analyzers |
+| Storage volume | Small BigQuery table | Partitioned and clustered analytical tables |
+| Slack usage | One workspace or channel | Tenant mapping and per-workspace secrets |
+| AI cost | Few Gemini calls | Sampling, deduplication, prompt compression, severity gating |
+
+::: {.note-card .compact-callout}
+**Budget stance:** Hub services can scale to zero during development; the client cluster can be destroyed when not testing.
+:::
+
+::: {.notes}
+The point is not to overbuild. The architecture uses scalable primitives, but the semester implementation stays within a limited university budget.
+:::
+
+## Planned Demo Scenario
+
+<div class="demo-timeline">
+  <div><span>1</span><p>Deploy Hub services and the mock Client Project.</p></div>
+  <div><span>2</span><p>Trigger a Java service failure through a chaos endpoint.</p></div>
+  <div><span>3</span><p>Cloud Logging captures the error and routes it to Pub/Sub.</p></div>
+  <div><span>4</span><p>Incident Analyzer normalizes and deduplicates the event.</p></div>
+  <div><span>5</span><p>BigQuery stores a sanitized incident record.</p></div>
+  <div><span>6</span><p>Slack receives a critical alert, optionally enriched by Gemini.</p></div>
+  <div><span>7</span><p>User runs `/aegis status java-api`.</p></div>
+  <div><span>8</span><p>Metrics Service returns health, recent error context, and suggested action.</p></div>
+</div>
+
+::: {.notes}
+This slide should make the final presentation feel concrete. The demo is a sequence the class can follow: induce failure, observe pipeline, then interact with the bot.
+:::
+
+## Team Division
+
+:::: {.team-grid}
+::: {.team-card}
+[Person 1]{.person}
+
+<h3>Client environment</h3>
+
+GKE Autopilot, mock app, chaos endpoints, Cloud Logging sink.
+:::
+
+::: {.team-card}
+[Person 2]{.person}
+
+<h3>Hub infrastructure</h3>
+
+Terraform structure, BigQuery, Artifact Registry, Cloud Run, CI/CD.
+:::
+
+::: {.team-card}
+[Person 3]{.person}
+
+<h3>Slack and AI UX</h3>
+
+Slack Gateway, Block Kit messages, Gemini prompts, command design.
+:::
+
+::: {.team-card}
+[Person 4]{.person}
+
+<h3>Metrics and security</h3>
+
+Cloud Monitoring queries, cross-project IAM, Metrics Service, security checks.
+:::
+::::
+
+::: {.notes}
+Replace Person 1 to Person 4 with real names before presenting if needed. Keep the division outcome-based rather than only listing tools.
+:::
+
+## What This Project Will Prove {.closing-slide}
+
+:::: {.closing-grid}
+::: {}
+<h3>Cloud architecture</h3>
+
+A separated Hub/Client design with secure cross-project observability.
+:::
+
+::: {}
+<h3>Reliable event flow</h3>
+
+At-least-once ingestion, deduplication, durable incident storage, and measurable SLOs.
+:::
+
+::: {}
+<h3>Useful operator workflow</h3>
+
+Slack alerts, status commands, recent context, and optional AI explanations.
+:::
+::::
+
+<p class="final-line">Aegis AI is scoped for a university budget, but designed with production-grade cloud tradeoffs in mind.</p>
+
+::: {.notes}
+End by restating the value: the project is not just deploying services, it demonstrates the decisions expected in a cloud computing course: managed services, IAM, storage, APIs, reliability, and cost-aware scaling.
+:::

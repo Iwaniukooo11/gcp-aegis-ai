@@ -7,9 +7,19 @@ output "hub_project_id" {
   value       = var.hub_project_id
 }
 
-output "bot_service_account_email" {
-  description = "The email of the SRE Bot (Give this access to the Client Project)"
-  value       = google_service_account.aegis_bot.email
+output "slack_gateway_service_account_email" {
+  description = "The email of the Slack Gateway service account"
+  value       = google_service_account.slack_gateway.email
+}
+
+output "incident_analyzer_service_account_email" {
+  description = "The email of the Incident Analyzer service account"
+  value       = google_service_account.incident_analyzer.email
+}
+
+output "query_processor_service_account_email" {
+  description = "The email of the Query Processor service account for client Monitoring IAM"
+  value       = google_service_account.query_processor.email
 }
 
 output "incoming_logs_topic_id" {
@@ -35,7 +45,12 @@ output "slack_gateway_url" {
   value       = google_cloud_run_v2_service.slack_gateway.uri
 }
 
+output "query_processor_url" {
+  description = "Private Query Processor URL used by the Slack Gateway"
+  value       = google_cloud_run_v2_service.query_processor.uri
+}
+
 output "metrics_service_url" {
-  description = "Private Metrics Service URL used by the Slack Gateway"
-  value       = google_cloud_run_v2_service.metrics_service.uri
+  description = "Deprecated alias for query_processor_url"
+  value       = google_cloud_run_v2_service.query_processor.uri
 }
