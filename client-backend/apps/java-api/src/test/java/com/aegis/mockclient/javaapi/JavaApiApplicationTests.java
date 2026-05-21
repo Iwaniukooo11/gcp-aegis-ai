@@ -170,7 +170,9 @@ class JavaApiApplicationTests {
 		assertThat(payload.path("scenario").asText()).isEqualTo("JAVA_EXCEPTION_NULL_POINTER");
 		assertThat(payload.path("error_type").asText()).isEqualTo("NullPointerException");
 		assertThat(payload.path("correlation_id").asText()).isEqualTo("java-error-001");
-		assertThat(payload.path("stack_trace_preview").asText()).contains("NullPointerException");
+		assertThat(payload.path("stack_trace_preview").asText())
+				.contains("NullPointerException")
+				.contains("ChaosController");
 	}
 
 	@Test

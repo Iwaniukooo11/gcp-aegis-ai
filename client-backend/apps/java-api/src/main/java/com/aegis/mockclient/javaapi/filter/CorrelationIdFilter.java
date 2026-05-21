@@ -1,6 +1,7 @@
 package com.aegis.mockclient.javaapi.filter;
 
 import com.aegis.mockclient.javaapi.config.AegisProperties;
+import com.aegis.mockclient.javaapi.observability.StackTracePreview;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
@@ -49,7 +50,7 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
 			filterChain.doFilter(request, response);
 		} catch (ServletException | IOException | RuntimeException ex) {
 			request.setAttribute(ObservabilityAttributes.ERROR_TYPE, ex.getClass().getSimpleName());
-			request.setAttribute(ObservabilityAttributes.STACK_TRACE_PREVIEW, stackTracePreview(ex));
+			request.setAttribute(ObservabilityAttributes.STACK_TRACE_PREVIEW, StackTracePreview.from(ex));
 			logRequest(request, correlationId, 500, startedAt);
 			logged = true;
 			throw ex;
@@ -92,14 +93,6 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
 		if (value != null) {
 			payload.put(key, value);
 		}
-	}
-
-	private String stackTracePreview(Exception ex) {
-		StackTraceElement[] stackTrace = ex.getStackTrace();
-		if (stackTrace.length == 0) {
-			return ex.getMessage();
-		}
-		return ex.getClass().getSimpleName() + ": " + stackTrace[0];
 	}
 
 	private String toJson(Map<String, Object> payload) throws IOException {
