@@ -7,25 +7,31 @@ REGION="${REGION:-europe-central2}"
 PROJECT="${PROJECT:-aegis-hub-2137}"
 REPO="$REGION-docker.pkg.dev/$PROJECT/aegis-services"
 
+build_and_push() {
+  local name="$1"
+  local context="$2"
+  echo ">>> Building and pushing ${name} (linux/amd64, no attestations — Cloud Run requirement)"
+  docker buildx build \
+    --platform linux/amd64 \
+    --provenance=false \
+    --sbom=false \
+    -t "${REPO}/${name}:latest" \
+    --push \
+    "${context}"
+}
+
 echo ">>> Authenticating Docker with Artifact Registry"
-gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 
-echo ">>> Building and pushing incident-analyzer"
-docker build -t "$REPO/incident-analyzer:latest" aegis-hub-code/incident-analyzer
-docker push "$REPO/incident-analyzer:latest"
-
-echo ">>> Building and pushing query-processor"
-docker build -t "$REPO/query-processor:latest" aegis-hub-code/query-processor
-docker push "$REPO/query-processor:latest"
-
-echo ">>> Building and pushing slack-gateway"
-docker build -t "$REPO/slack-gateway:latest" aegis-hub-code/slack-gateway
-docker push "$REPO/slack-gateway:latest"
+build_and_push "incident-analyzer" "aegis-hub-code/incident-analyzer"
+build_and_push "query-processor" "aegis-hub-code/query-processor"
+build_and_push "slack-gateway" "aegis-hub-code/slack-gateway"
 
 echo ">>> Applying Terraform"
 cd terraform/aegis-hub
 terraform init -upgrade
 terraform apply \
+  -var="hub_project_id=$PROJECT" \
   -var="incident_analyzer_image=$REPO/incident-analyzer:latest" \
   -var="query_processor_image=$REPO/query-processor:latest" \
   -var="slack_gateway_image=$REPO/slack-gateway:latest" \

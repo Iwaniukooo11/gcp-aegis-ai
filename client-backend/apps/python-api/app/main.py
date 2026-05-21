@@ -1,5 +1,9 @@
+import asyncio
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 
+from app.chaos_auto import start_chaos_auto_task
 from app.config import Settings, get_settings
 from app.context import correlation_id_var
 from app.errors import error_response
@@ -32,11 +36,23 @@ def _python_exception_response(request: Request, exc: Exception, default_scenari
     )
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    task = start_chaos_auto_task(app.state.settings)
+    yield
+    if task is not None:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     app_settings = settings or get_settings()
     configure_logging(app_settings)
 
-    app = FastAPI(title="Aegis Python API", version=app_settings.version)
+    app = FastAPI(title="Aegis Python API", version=app_settings.version, lifespan=_lifespan)
     app.state.settings = app_settings
     app.add_middleware(CorrelationIdMiddleware)
     app.include_router(health.router)

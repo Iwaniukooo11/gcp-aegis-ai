@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     firestore_database: str
     slack_gateway_url: str
     slack_alert_channel_id: str = ""
-    vertex_model: str = "gemini-1.5-flash"
+    vertex_model: str = "gemini-2.5-flash"
     session_ttl_hours: int = 24
     receipt_ttl_hours: int = 24
 

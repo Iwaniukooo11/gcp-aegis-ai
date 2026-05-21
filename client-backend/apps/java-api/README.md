@@ -27,5 +27,5 @@ POST /chaos/exception?type=illegal_state
 POST /chaos/slow?seconds=15
 POST /chaos/pricing-5xx?seconds=60
 
-With `CHAOS_AUTO_MODE=true`, java-api triggers pricing-5xx and a chaos exception on a fixed interval (defaults: every 20s, 10s pricing failure window).
+With `CHAOS_AUTO_MODE=true`, java-api triggers one chaos exception every `CHAOS_AUTO_INTERVAL_SECONDS` (default 120s). Pair with python-api auto mode (60s initial delay) for about one ERROR log per minute across both services.
 ```

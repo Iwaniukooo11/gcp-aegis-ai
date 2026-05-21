@@ -13,6 +13,8 @@ class Settings(BaseSettings):
 
     chaos_enabled: bool = Field(default=True, validation_alias="CHAOS_ENABLED")
     chaos_auto_mode: bool = Field(default=False, validation_alias="CHAOS_AUTO_MODE")
+    chaos_auto_interval_seconds: int = Field(default=120, validation_alias="CHAOS_AUTO_INTERVAL_SECONDS")
+    chaos_auto_initial_delay_seconds: int = Field(default=60, validation_alias="CHAOS_AUTO_INITIAL_DELAY_SECONDS")
     allow_destructive_chaos: bool = Field(default=False, validation_alias="ALLOW_DESTRUCTIVE_CHAOS")
     java_api_base_url: str = Field(default="http://java-api:8080", validation_alias="JAVA_API_BASE_URL")
     java_api_timeout_ms: int = Field(default=1000, validation_alias="JAVA_API_TIMEOUT_MS")

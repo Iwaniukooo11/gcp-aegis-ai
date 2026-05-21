@@ -53,5 +53,5 @@ uv run uvicorn app.main:app --reload --port 8081
 | `BIGQUERY_INCIDENTS_TABLE` | yes | `incidents` |
 | `FIRESTORE_DATABASE` | yes | Firestore DB name |
 | `ALLOWED_CLIENT_PROJECT_IDS` | no | Comma-separated project IDs for Monitoring queries |
-| `VERTEX_MODEL` | no | Default: `gemini-1.5-flash` |
+| `VERTEX_MODEL` | no | Default: `gemini-2.5-flash` |
 | `SESSION_TTL_HOURS` | no | Default: 24 |
