@@ -11,11 +11,38 @@ from datetime import datetime, timedelta, timezone
 from google.cloud import monitoring_v3
 
 from app.config import get_settings
+from app.integrations.metric_catalog import GCP_METRIC_TYPE_BY_ID
 
 logger = logging.getLogger(__name__)
 
+_ALLOWED_GCP_METRIC_TYPES = frozenset(GCP_METRIC_TYPE_BY_ID.values())
 
-def execute_plan(client_project_id: str, plan: dict) -> dict:
+
+def _build_time_series_filter(metric_type: str, extra_filter: str) -> str | None:
+    metric_type = metric_type.strip()
+    if not metric_type:
+        return None
+    extra = extra_filter.strip()
+    if extra and "metric.type=" in extra:
+        return extra
+    base = f'metric.type="{metric_type}"'
+    return f"{base} AND {extra}" if extra else base
+
+
+def _relax_cluster_filter(filter_str: str) -> str:
+    parts = [
+        p
+        for p in filter_str.split(" AND ")
+        if p and not p.startswith('resource.labels.cluster_name=')
+    ]
+    return " AND ".join(parts)
+
+
+def execute_plan(
+    client_project_id: str,
+    plan: dict,
+    anchor_time: datetime | None = None,
+) -> dict:
     """Fetch metric time-series for each item in MetricFetchPlan.metrics.
 
     Returns a dict keyed by metric_type with a list of data points per series.
@@ -31,11 +58,26 @@ def execute_plan(client_project_id: str, plan: dict) -> dict:
     results: dict = {}
 
     for metric_spec in plan.get("metrics", []):
-        metric_type = metric_spec.get("metric_type", "")
-        extra_filter = metric_spec.get("filter", "")
-        window_minutes = int(metric_spec.get("window_minutes", 30))
+        if not isinstance(metric_spec, dict):
+            continue
+        metric_type = str(metric_spec.get("metric_type") or "").strip()
+        if metric_type not in _ALLOWED_GCP_METRIC_TYPES:
+            logger.warning("Skipping non-allowlisted metric_type: %s", metric_spec)
+            continue
+        extra_filter = str(metric_spec.get("filter") or "")
+        try:
+            window_minutes = int(metric_spec.get("window_minutes", 30))
+        except (TypeError, ValueError):
+            window_minutes = 30
 
-        end_time = datetime.now(tz=timezone.utc)
+        filter_str = _build_time_series_filter(metric_type, extra_filter)
+        if filter_str is None:
+            logger.warning("Skipping metric spec without metric_type: %s", metric_spec)
+            continue
+
+        end_time = anchor_time or datetime.now(tz=timezone.utc)
+        if end_time.tzinfo is None:
+            end_time = end_time.replace(tzinfo=timezone.utc)
         start_time = end_time - timedelta(minutes=window_minutes)
 
         interval = monitoring_v3.TimeInterval(
@@ -45,27 +87,44 @@ def execute_plan(client_project_id: str, plan: dict) -> dict:
             }
         )
 
-        filter_str = f'metric.type="{metric_type}"'
-        if extra_filter:
-            filter_str += f" AND {extra_filter}"
+        result_key = metric_type or filter_str
 
         try:
-            series_list = list(
-                client.list_time_series(
-                    request={
-                        "name": project_name,
-                        "filter": filter_str,
-                        "interval": interval,
-                        "view": monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.FULL,
-                    }
-                )
-            )
-            results[metric_type] = _serialize_series(series_list)
+            series_list = _list_series(client, project_name, filter_str, interval)
+            if not series_list and 'resource.labels.cluster_name=' in filter_str:
+                relaxed = _relax_cluster_filter(filter_str)
+                if relaxed != filter_str:
+                    logger.info(
+                        "Retrying metric %s without cluster_name filter",
+                        result_key,
+                    )
+                    series_list = _list_series(client, project_name, relaxed, interval)
+            results[result_key] = _serialize_series(series_list)
+            if not series_list:
+                logger.warning("No time series for metric %s (filter=%s)", result_key, filter_str)
         except Exception as exc:
-            logger.warning("Failed to fetch metric %s: %s", metric_type, exc)
-            results[metric_type] = {"error": str(exc)}
+            logger.warning("Failed to fetch metric %s: %s", result_key, exc)
+            results[result_key] = {"error": str(exc)}
 
     return results
+
+
+def _list_series(
+    client: monitoring_v3.MetricServiceClient,
+    project_name: str,
+    filter_str: str,
+    interval: monitoring_v3.TimeInterval,
+) -> list:
+    return list(
+        client.list_time_series(
+            request={
+                "name": project_name,
+                "filter": filter_str,
+                "interval": interval,
+                "view": monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.FULL,
+            }
+        )
+    )
 
 
 def _serialize_series(series_list: list) -> list[dict]:

@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.integrations import query_processor_client, slack_web_api
+from app.slack_event_dedup import is_duplicate_event
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,11 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks) -> J
 
     event = body.get("event", {})
     if event.get("type") != "app_mention":
+        return JSONResponse({"ok": True})
+
+    event_id = body.get("event_id")
+    if is_duplicate_event(event_id):
+        logger.info("Skipping duplicate Slack event_id=%s", event_id)
         return JSONResponse({"ok": True})
 
     text = event.get("text", "")
