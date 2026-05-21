@@ -242,20 +242,27 @@ def format_slack_response(
     user_question: str,
     analysis: dict,
     metric_summary: dict | None = None,
+    metric_facts: str | None = None,
 ) -> str:
     """Gemini step 3 — produce a concise Slack mrkdwn response.
 
     Returns a plain Slack mrkdwn string.
     """
+    if metric_facts:
+        try:
+            analysis_body = format_analysis_only(
+                incident_id, user_question, analysis, metric_summary
+            )
+        except Exception:
+            analysis_body = _fallback_analysis_text(analysis)
+        return f"{metric_facts}\n\n{analysis_body}"
+
     _ensure_init()
     system_prompt = (
         "You are formatting an SRE incident analysis response for Slack (mrkdwn). "
-        "Be concise — max 8 lines. Use *bold* sparingly for key values. "
-        "Answer the operator's question directly using metric_summary when it has status ok. "
-        "For CPU questions, quote latest_value from kubernetes.io/container/cpu metrics. "
-        "Only say CPU data is unavailable when metric_summary shows no_data or error for CPU. "
-        "Then list root cause candidates. "
-        "If confidence is low, say so clearly. "
+        "Be concise — max 6 lines. "
+        "Use metric_summary.display and utilization_percent only; never invent CPU core counts. "
+        "List root cause candidates from analysis. "
         "Return ONLY the Slack mrkdwn string."
     )
     model = GenerativeModel(
@@ -278,3 +285,48 @@ def format_slack_response(
         generation_config=GenerationConfig(temperature=0.3),
     )
     return response.text.strip()
+
+
+def format_analysis_only(
+    incident_id: str,
+    user_question: str,
+    analysis: dict,
+    metric_summary: dict | None = None,
+) -> str:
+    """Format root-cause section only; metric numbers come from metric_facts."""
+    _ensure_init()
+    system_prompt = (
+        "Format root cause candidates for Slack (mrkdwn). Max 5 lines. "
+        "Do not repeat or contradict metric_facts. Do not state CPU/memory numbers. "
+        "Return ONLY mrkdwn."
+    )
+    model = GenerativeModel(
+        get_settings().vertex_model,
+        system_instruction=[system_prompt],
+    )
+    payload = {
+        "incident_id": incident_id,
+        "user_question": user_question,
+        "analysis": analysis,
+        "metric_summary": metric_summary or {},
+    }
+    response = model.generate_content(
+        [
+            Content(
+                role="user",
+                parts=[Part.from_text(json.dumps(payload, default=str))],
+            )
+        ],
+        generation_config=GenerationConfig(temperature=0.2),
+    )
+    return response.text.strip()
+
+
+def _fallback_analysis_text(analysis: dict) -> str:
+    candidates = analysis.get("root_cause_candidates") or []
+    confidence = analysis.get("confidence", "unknown")
+    lines = ["*Root cause candidates:*"]
+    for item in candidates[:5]:
+        lines.append(f"• {item}")
+    lines.append(f"Confidence: {confidence}")
+    return "\n".join(lines)

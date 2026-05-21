@@ -1,28 +1,38 @@
 """Allowlisted Cloud Monitoring metrics the Query Processor can fetch."""
 
-from typing import TypedDict
+from typing import Literal, TypedDict
+
+MetricValueKind = Literal[
+    "cpu_limit_fraction",
+    "bytes",
+    "counter",
+]
 
 
 class FetchMetricSpec(TypedDict):
     type: str
     gcp_metric_type: str
     description: str
+    value_kind: MetricValueKind
 
 
 ALLOWED_FETCH_METRICS: tuple[FetchMetricSpec, ...] = (
     {
         "type": "cpu_utilization",
-        "gcp_metric_type": "kubernetes.io/container/cpu/core_usage_time",
-        "description": "Container CPU usage (GKE k8s_container)",
+        "gcp_metric_type": "kubernetes.io/container/cpu/limit_utilization",
+        "value_kind": "cpu_limit_fraction",
+        "description": "Fraction of container CPU limit in use (0.0–1.0, GKE k8s_container)",
     },
     {
         "type": "memory_utilization",
         "gcp_metric_type": "kubernetes.io/container/memory/used_bytes",
-        "description": "Container memory used bytes (GKE k8s_container)",
+        "value_kind": "bytes",
+        "description": "Container memory used in bytes (GKE k8s_container)",
     },
     {
         "type": "pod_restart_count",
         "gcp_metric_type": "kubernetes.io/container/restart_count",
+        "value_kind": "counter",
         "description": "Container restart count (GKE k8s_container)",
     },
 )
@@ -31,6 +41,14 @@ ALLOWED_METRIC_TYPE_IDS: tuple[str, ...] = tuple(m["type"] for m in ALLOWED_FETC
 
 GCP_METRIC_TYPE_BY_ID: dict[str, str] = {
     m["type"]: m["gcp_metric_type"] for m in ALLOWED_FETCH_METRICS
+}
+
+GCP_METRIC_TYPE_TO_ID: dict[str, str] = {
+    m["gcp_metric_type"]: m["type"] for m in ALLOWED_FETCH_METRICS
+}
+
+METRIC_VALUE_KIND_BY_ID: dict[str, MetricValueKind] = {
+    m["type"]: m["value_kind"] for m in ALLOWED_FETCH_METRICS
 }
 
 METRIC_PLAN_RESPONSE_SCHEMA: dict = {
@@ -70,6 +88,7 @@ def allowed_metrics_for_prompt() -> list[dict]:
         {
             "type": m["type"],
             "gcp_metric_type": m["gcp_metric_type"],
+            "value_kind": m["value_kind"],
             "description": m["description"],
         }
         for m in ALLOWED_FETCH_METRICS
