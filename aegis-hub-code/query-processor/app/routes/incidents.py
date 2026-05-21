@@ -10,7 +10,13 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
-from app.integrations import bigquery_incidents, firestore_sessions, monitoring, vertex
+from app.integrations import (
+    bigquery_incidents,
+    firestore_sessions,
+    metric_plan,
+    monitoring,
+    vertex,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +99,10 @@ async def query_incident(incident_id: str, body: QueryRequest) -> dict:
     messages_with_user = list(session.get("messages", [])) + [user_message]
 
     try:
-        metric_plan = vertex.plan_metrics(session, messages_with_user, body.text)
+        planned = vertex.plan_metrics(session, messages_with_user, body.text)
+        metric_plan_body = metric_plan.supplement_metric_plan_for_question(
+            planned, body.text, session
+        )
     except Exception as exc:
         logger.error("Gemini metric plan failed for %s: %s", incident_id, exc)
         raise HTTPException(status_code=500, detail="gemini_metric_plan_failed") from exc
@@ -101,22 +110,33 @@ async def query_incident(incident_id: str, body: QueryRequest) -> dict:
     metric_results: dict = {}
     metrics_fetched = False
     client_project_id = session.get("client_project_id", "")
-    if metric_plan.get("metrics") and client_project_id:
+    anchor_time = metric_plan.parse_session_anchor(session)
+    if metric_plan_body.get("metrics") and client_project_id:
         try:
-            metric_results = monitoring.execute_plan(client_project_id, metric_plan)
+            metric_results = monitoring.execute_plan(
+                client_project_id,
+                metric_plan_body,
+                anchor_time=anchor_time,
+            )
             metrics_fetched = True
         except Exception as exc:
             logger.warning("Monitoring query failed for %s: %s", incident_id, exc)
             metric_results = {"error": str(exc)}
 
+    metric_summary = metric_plan.summarize_metric_results(metric_results)
+
     try:
-        analysis = vertex.analyze_metrics(session, messages_with_user, metric_plan, metric_results)
+        analysis = vertex.analyze_metrics(
+            session, messages_with_user, metric_plan_body, metric_results
+        )
     except Exception as exc:
         logger.error("Gemini analysis failed for %s: %s", incident_id, exc)
         raise HTTPException(status_code=500, detail="gemini_analysis_failed") from exc
 
     try:
-        slack_text = vertex.format_slack_response(incident_id, body.text, analysis)
+        slack_text = vertex.format_slack_response(
+            incident_id, body.text, analysis, metric_summary
+        )
     except Exception as exc:
         logger.error("Gemini Slack format failed for %s: %s", incident_id, exc)
         raise HTTPException(status_code=500, detail="gemini_format_failed") from exc
