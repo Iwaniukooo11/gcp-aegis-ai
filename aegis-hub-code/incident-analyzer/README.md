@@ -53,6 +53,6 @@ uv run uvicorn app.main:app --reload --port 8080
 | `BIGQUERY_INCIDENTS_TABLE` | yes | `incidents` |
 | `FIRESTORE_DATABASE` | yes | Firestore DB name |
 | `SLACK_GATEWAY_URL` | yes | Internal Slack Gateway Cloud Run URL |
-| `VERTEX_MODEL` | no | Default: `gemini-1.5-flash` |
+| `VERTEX_MODEL` | no | Default: `gemini-2.5-flash` |
 | `SESSION_TTL_HOURS` | no | Default: 24 |
 | `RECEIPT_TTL_HOURS` | no | Default: 24 |

@@ -1,7 +1,6 @@
 package com.aegis.mockclient.javaapi.chaos;
 
 import com.aegis.mockclient.javaapi.config.AegisProperties;
-import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -16,29 +15,23 @@ public class ChaosAutoScheduler {
 	private static final Logger LOGGER = LoggerFactory.getLogger(ChaosAutoScheduler.class);
 
 	private final AegisProperties properties;
-	private final JavaChaosState chaosState;
 	private final RestClient restClient;
 
-	public ChaosAutoScheduler(AegisProperties properties, JavaChaosState chaosState, RestClient.Builder restClientBuilder) {
+	public ChaosAutoScheduler(AegisProperties properties, RestClient.Builder restClientBuilder) {
 		this.properties = properties;
-		this.chaosState = chaosState;
 		this.restClient = restClientBuilder.baseUrl("http://localhost:8080").build();
 	}
 
 	@Scheduled(
-			initialDelayString = "${aegis.chaos-auto-interval-seconds:30}000",
-			fixedDelayString = "${aegis.chaos-auto-interval-seconds:30}000")
+			initialDelayString = "${aegis.chaos-auto-interval-seconds:120}000",
+			fixedDelayString = "${aegis.chaos-auto-interval-seconds:120}000")
 	public void runChaosCycle() {
 		if (!properties.chaosEnabled()) {
 			return;
 		}
 
-		int pricingSeconds = Math.min(properties.chaosAutoPricing5xxSeconds(), properties.chaosMaxPricing5xxSeconds());
-		chaosState.enablePricingFailure(Duration.ofSeconds(pricingSeconds));
-		LOGGER.info("chaos auto enabled JAVA_PRICING_5XX for {} seconds", pricingSeconds);
-
+		LOGGER.info("chaos auto triggering JAVA_EXCEPTION_NULL_POINTER");
 		triggerException("null_pointer");
-		triggerPricingRequest();
 	}
 
 	private void triggerException(String type) {
@@ -49,11 +42,4 @@ public class ChaosAutoScheduler {
 		}
 	}
 
-	private void triggerPricingRequest() {
-		try {
-			restClient.get().uri("/api/pricing").retrieve().toBodilessEntity();
-		} catch (Exception ex) {
-			LOGGER.debug("chaos auto pricing trigger completed with {}", ex.getClass().getSimpleName());
-		}
-	}
 }

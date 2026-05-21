@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     bigquery_dataset: str
     bigquery_incidents_table: str
     firestore_database: str
-    vertex_model: str = "gemini-1.5-flash"
+    vertex_model: str = "gemini-2.5-flash"
     allowed_client_project_ids: str = ""
     session_ttl_hours: int = 24
 

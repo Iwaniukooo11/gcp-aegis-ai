@@ -68,4 +68,10 @@ def post_alert(
             },
         )
         response.raise_for_status()
-        return response.json()
+        try:
+            return response.json()
+        except ValueError as exc:
+            body_preview = (response.text or "")[:500]
+            raise ValueError(
+                f"Slack Gateway returned non-JSON (status={response.status_code}): {body_preview!r}"
+            ) from exc

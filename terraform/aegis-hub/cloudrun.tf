@@ -101,7 +101,7 @@ resource "google_cloud_run_v2_service" "incident_analyzer" {
       }
       env {
         name  = "VERTEX_MODEL"
-        value = "gemini-1.5-flash"
+        value = "gemini-2.5-flash"
       }
     }
     scaling {
@@ -160,7 +160,7 @@ resource "google_cloud_run_v2_service" "query_processor" {
       }
       env {
         name  = "VERTEX_MODEL"
-        value = "gemini-1.5-flash"
+        value = "gemini-2.5-flash"
       }
     }
     scaling {
