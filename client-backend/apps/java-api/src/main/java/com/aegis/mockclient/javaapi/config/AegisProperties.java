@@ -10,6 +10,9 @@ public record AegisProperties(
 		String team,
 		String version,
 		boolean chaosEnabled,
+		boolean chaosAutoMode,
+		int chaosAutoIntervalSeconds,
+		int chaosAutoPricing5xxSeconds,
 		int chaosMaxSlowSeconds,
 		int chaosMaxPricing5xxSeconds) {
 }

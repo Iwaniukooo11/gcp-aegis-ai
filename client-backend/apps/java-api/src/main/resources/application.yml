@@ -12,5 +12,8 @@ aegis:
   team: ${TEAM:demo}
   version: ${APP_VERSION:0.1.0}
   chaos-enabled: ${CHAOS_ENABLED:true}
+  chaos-auto-mode: ${CHAOS_AUTO_MODE:false}
+  chaos-auto-interval-seconds: ${CHAOS_AUTO_INTERVAL_SECONDS:20}
+  chaos-auto-pricing-5xx-seconds: ${CHAOS_AUTO_PRICING_5XX_SECONDS:10}
   chaos-max-slow-seconds: ${CHAOS_MAX_SLOW_SECONDS:30}
   chaos-max-pricing-5xx-seconds: ${CHAOS_MAX_PRICING_5XX_SECONDS:300}

@@ -5,6 +5,7 @@ import com.aegis.mockclient.javaapi.exception.ChaosDisabledException;
 import com.aegis.mockclient.javaapi.exception.InvalidChaosRequestException;
 import com.aegis.mockclient.javaapi.exception.PricingUnavailableException;
 import com.aegis.mockclient.javaapi.filter.ObservabilityAttributes;
+import com.aegis.mockclient.javaapi.observability.StackTracePreview;
 import com.aegis.mockclient.javaapi.model.ErrorEnvelope;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.MDC;
@@ -103,7 +104,7 @@ public class JavaExceptionHandler {
 		String errorType = ex.getClass().getSimpleName();
 		request.setAttribute(ObservabilityAttributes.SCENARIO, scenario);
 		request.setAttribute(ObservabilityAttributes.ERROR_TYPE, errorType);
-		request.setAttribute(ObservabilityAttributes.STACK_TRACE_PREVIEW, stackTracePreview(ex));
+		request.setAttribute(ObservabilityAttributes.STACK_TRACE_PREVIEW, StackTracePreview.from(ex));
 		return ResponseEntity.status(status).body(ErrorEnvelope.of(
 				code,
 				message,
@@ -121,11 +122,4 @@ public class JavaExceptionHandler {
 		return correlationId;
 	}
 
-	private String stackTracePreview(Exception ex) {
-		StackTraceElement[] stackTrace = ex.getStackTrace();
-		if (stackTrace.length == 0) {
-			return ex.getMessage();
-		}
-		return ex.getClass().getSimpleName() + ": " + stackTrace[0];
-	}
 }

@@ -306,6 +306,10 @@ def test_python_value_error_chaos_returns_standard_error(capsys) -> None:
     assert payload["scenario"] == "PYTHON_EXCEPTION_VALUE_ERROR"
     assert payload["error_type"] == "ValueError"
     assert payload["incident_candidate"] is True
+    preview = payload["stack_trace_preview"]
+    assert "Traceback" in preview
+    assert "chaos.py" in preview
+    assert "ValueError" in preview
 
 
 def test_python_runtime_error_chaos_returns_standard_error() -> None:

@@ -1,4 +1,8 @@
+import traceback
+
 from fastapi import Request
+
+MAX_STACK_TRACE_PREVIEW_CHARS = 4096
 
 
 def set_observability(
@@ -20,10 +24,7 @@ def set_observability(
 
 
 def stack_trace_preview(exc: BaseException) -> str:
-    traceback = exc.__traceback__
-    if traceback is None:
-        return str(exc)
-    while traceback.tb_next is not None:
-        traceback = traceback.tb_next
-    code = traceback.tb_frame.f_code
-    return f"{exc.__class__.__name__}: {code.co_filename}:{traceback.tb_lineno}"
+    text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)).rstrip()
+    if len(text) <= MAX_STACK_TRACE_PREVIEW_CHARS:
+        return text
+    return f"{text[:MAX_STACK_TRACE_PREVIEW_CHARS].rstrip()}\n... (truncated)"
