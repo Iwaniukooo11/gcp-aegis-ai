@@ -123,7 +123,10 @@ async def query_incident(incident_id: str, body: QueryRequest) -> dict:
             logger.warning("Monitoring query failed for %s: %s", incident_id, exc)
             metric_results = {"error": str(exc)}
 
-    metric_summary = metric_plan.summarize_metric_results(metric_results)
+    metric_summary = metric_plan.summarize_metric_results(
+        metric_results, anchor_time=anchor_time
+    )
+    metric_facts = metric_plan.format_metric_facts_line(body.text, metric_summary)
 
     try:
         analysis = vertex.analyze_metrics(
@@ -135,7 +138,7 @@ async def query_incident(incident_id: str, body: QueryRequest) -> dict:
 
     try:
         slack_text = vertex.format_slack_response(
-            incident_id, body.text, analysis, metric_summary
+            incident_id, body.text, analysis, metric_summary, metric_facts
         )
     except Exception as exc:
         logger.error("Gemini Slack format failed for %s: %s", incident_id, exc)
