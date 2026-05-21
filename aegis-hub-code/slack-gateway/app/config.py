@@ -1,0 +1,33 @@
+from functools import lru_cache
+
+from pydantic import field_validator
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    """Application configuration for Slack Gateway.
+
+    No Firestore, BigQuery, Vertex, or Monitoring — this service is a thin
+    HTTP relay between Slack and internal Cloud Run services.
+    """
+
+    slack_bot_token: str
+    query_processor_url: str
+    default_slack_channel_id: str
+    incident_analyzer_url: str = ""
+    environment: str = "dev"
+
+    @field_validator("slack_bot_token", "query_processor_url", "default_slack_channel_id")
+    @classmethod
+    def must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty")
+        return v
+
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """Return cached application settings."""
+    return Settings()
