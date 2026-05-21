@@ -1,0 +1,27 @@
+[project]
+name = "aegis-hub-tests"
+version = "0.1.0"
+description = "End-to-end tests for Aegis Hub Cloud Run services"
+requires-python = ">=3.11"
+dependencies = [
+    "pytest>=8.0",
+    "fastapi>=0.136.1",
+    "google-auth>=2.53.0",
+    "google-auth-httplib2>=0.4.0",
+    "google-cloud-bigquery>=3.41.0",
+    "google-cloud-firestore>=2.27.0",
+    "google-cloud-monitoring>=2.30.0",
+    "google-cloud-pubsub>=2.38.0",
+    "httpx>=0.28.1",
+    "python-multipart>=0.0.20",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.1",
+    "uvicorn[standard]>=0.47.0",
+    "vertexai>=1.71.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["."]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

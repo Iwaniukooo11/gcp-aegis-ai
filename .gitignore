@@ -12,3 +12,9 @@ override.tf.json
 .idea
 
 .llm_context/
+
+
+*/__pycache__/
+*/.pytest_cache/
+**/.pytest_cache/
+**/__pycache__/
