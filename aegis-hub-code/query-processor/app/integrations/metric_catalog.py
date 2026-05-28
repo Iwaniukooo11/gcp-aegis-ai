@@ -18,10 +18,10 @@ class FetchMetricSpec(TypedDict):
 
 ALLOWED_FETCH_METRICS: tuple[FetchMetricSpec, ...] = (
     {
-        "type": "cpu_utilization",
-        "gcp_metric_type": "kubernetes.io/container/cpu/limit_utilization",
-        "value_kind": "cpu_limit_fraction",
-        "description": "Fraction of container CPU limit in use (0.0–1.0, GKE k8s_container)",
+        "type": "cpu_usage_time",
+        "gcp_metric_type": "kubernetes.io/container/cpu/core_usage_time",
+        "value_kind": "seconds",
+        "description": "CPU usage time in seconds (GKE k8s_container)",
     },
     {
         "type": "memory_utilization",
