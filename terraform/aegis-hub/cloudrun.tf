@@ -24,6 +24,14 @@ resource "google_cloud_run_v2_service" "slack_gateway" {
         value = var.slack_alert_channel_id
       }
       env {
+        name  = "GCP_PROJECT"
+        value = var.hub_project_id
+      }
+      env {
+        name  = "FIRESTORE_DATABASE"
+        value = google_firestore_database.session_db.name
+      }
+      env {
         name = "SLACK_BOT_TOKEN"
         value_source {
           secret_key_ref {
@@ -42,6 +50,7 @@ resource "google_cloud_run_v2_service" "slack_gateway" {
   depends_on = [
     google_project_service.enabled_apis,
     google_project_iam_member.slack_gateway_hub_permissions,
+    google_secret_manager_secret_version.slack_token,
   ]
 }
 

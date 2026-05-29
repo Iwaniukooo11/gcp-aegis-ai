@@ -25,14 +25,14 @@ def _post_cmd(client, text: str = "", response_url: str = "http://test-response-
 
 
 class TestLatestIncidentsCommand:
-    def test_acks_immediately_with_ephemeral_message(self, client, sg_qp_client, sg_slack_web_api):
+    def test_acks_immediately_with_channel_visible_message(self, client, sg_qp_client, sg_slack_web_api):
         with patch.object(sg_qp_client, "get_latest_incidents", return_value={"incidents": [], "count": 0}), \
              patch.object(sg_slack_web_api, "post_to_response_url"):
             resp = _post_cmd(client)
 
         assert resp.status_code == 200
         body = resp.json()
-        assert body["response_type"] == "ephemeral"
+        assert body["response_type"] == "in_channel"
         assert "10" in body["text"]
 
     def test_happy_path_formats_and_posts_incident_list(self, client, sg_qp_client, sg_slack_web_api, sample_bq_rows):

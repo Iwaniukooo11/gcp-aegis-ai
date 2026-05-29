@@ -46,17 +46,14 @@ terraform plan
 terraform apply
 ```
 
-After the hub apply, add Slack secret versions manually so secret values do not enter Terraform state:
+Set Slack credentials in `terraform/aegis-hub/terraform.tfvars` (gitignored):
 
-```bash
-printf '%s' '<xoxb-slack-bot-token>' | gcloud secrets versions add slack-bot-token \
-  --data-file=- \
-  --project=aegis-hub-2137
-
-printf '%s' '<slack-signing-secret>' | gcloud secrets versions add slack-signing-secret \
-  --data-file=- \
-  --project=aegis-hub-2137
+```hcl
+slack_bot_token      = "xoxb-..."
+slack_signing_secret = "..."   # optional
 ```
+
+Terraform creates Secret Manager versions on apply so Cloud Run always has `latest`.
 
 If you have Billing Budget permissions, set `billing_account_name` in the hub tfvars to enable the optional monthly budget.
 

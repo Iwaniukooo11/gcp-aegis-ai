@@ -24,7 +24,8 @@ resource "google_service_account" "query_processor" {
 # ------------------------------------------------------------------------------
 locals {
   slack_gateway_hub_roles = [
-    "roles/secretmanager.secretAccessor"
+    "roles/secretmanager.secretAccessor",
+    "roles/datastore.user",
   ]
 
   incident_analyzer_hub_roles = [

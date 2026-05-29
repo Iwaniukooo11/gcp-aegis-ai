@@ -1,0 +1,128 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aegis-demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: java-api
+  namespace: aegis-demo
+  labels:
+    app: java-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: java-api
+  template:
+    metadata:
+      labels:
+        app: java-api
+    spec:
+      containers:
+        - name: java-api
+          image: europe-central2-docker.pkg.dev/aegis-client-420/aegis-client-services/java-api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SERVICE_NAME
+              value: java-api
+            - name: CLIENT_PROJECT_ID
+              value: aegis-client-420
+            - name: ENVIRONMENT
+              value: demo
+            - name: CHAOS_ENABLED
+              value: "true"
+            - name: CHAOS_AUTO_MODE
+              value: "false"
+            - name: ALLOW_DESTRUCTIVE_CHAOS
+              value: "false"
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: java-api
+  namespace: aegis-demo
+spec:
+  selector:
+    app: java-api
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: python-api
+  namespace: aegis-demo
+  labels:
+    app: python-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: python-api
+  template:
+    metadata:
+      labels:
+        app: python-api
+    spec:
+      containers:
+        - name: python-api
+          image: europe-central2-docker.pkg.dev/aegis-client-420/aegis-client-services/python-api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          env:
+            - name: SERVICE_NAME
+              value: python-api
+            - name: CLIENT_PROJECT_ID
+              value: aegis-client-420
+            - name: ENVIRONMENT
+              value: demo
+            - name: CHAOS_ENABLED
+              value: "true"
+            - name: CHAOS_AUTO_MODE
+              value: "false"
+            - name: JAVA_API_BASE_URL
+              value: http://java-api.aegis-demo.svc.cluster.local:8080
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: python-api
+  namespace: aegis-demo
+spec:
+  selector:
+    app: python-api
+  ports:
+    - port: 8000
+      targetPort: 8000

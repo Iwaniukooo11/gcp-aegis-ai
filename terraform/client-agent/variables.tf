@@ -17,6 +17,24 @@ variable "region" {
   default     = "europe-central2"
 }
 
+variable "log_sink_namespace" {
+  description = "GKE namespace name for log sink filter (empty = all k8s_container ERROR logs)"
+  type        = string
+  default     = "aegis-demo"
+}
+
+variable "gke_machine_type" {
+  description = "GKE node pool machine type"
+  type        = string
+  default     = "e2-medium"
+}
+
+variable "gke_disk_size_gb" {
+  description = "GKE node boot disk size in GB"
+  type        = number
+  default     = 50
+}
+
 variable "environment" {
   description = "Short environment label applied to managed resources"
   type        = string

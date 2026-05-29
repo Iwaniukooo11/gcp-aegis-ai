@@ -16,10 +16,9 @@ Paths covered:
 from unittest.mock import patch
 
 _METRIC_PLAN = {
-    "metrics": [
-        {"metric_type": "kubernetes.io/container/memory/used_bytes", "filter": "", "window_minutes": 15}
-    ],
+    "metrics": [{"type": "memory_utilization"}],
     "rationale": "check memory trend",
+    "window_minutes": 15,
 }
 _ANALYSIS = {
     "root_cause_candidates": ["Memory leak in request handler"],

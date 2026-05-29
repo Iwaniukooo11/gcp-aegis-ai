@@ -51,8 +51,8 @@ resource "google_container_node_pool" "mock_gke_primary" {
   node_count = 1
 
   node_config {
-    machine_type = "e2-small"
-    disk_size_gb = 20
+    machine_type = var.gke_machine_type
+    disk_size_gb = var.gke_disk_size_gb
     disk_type    = "pd-standard"
     spot         = true
 

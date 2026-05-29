@@ -7,7 +7,7 @@ POST /v1/internal/incidents/alert
 import logging
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.config import get_settings
 from app.integrations import slack_web_api
@@ -29,6 +29,26 @@ class AlertPayload(BaseModel):
     ai_recommendation: str = ""
     formatted_message: str = ""
     fallback_text: str = ""
+
+    @field_validator(
+        "incident_id",
+        "client_project_id",
+        "service_name",
+        "severity",
+        "error_type",
+        "short_message",
+        "sanitized_stack_trace_preview",
+        "ai_summary",
+        "ai_recommendation",
+        "formatted_message",
+        "fallback_text",
+        mode="before",
+    )
+    @classmethod
+    def coerce_strings(cls, value: object) -> str:
+        if value is None:
+            return ""
+        return str(value)
 
 
 @router.post("/incidents/alert", status_code=status.HTTP_200_OK)

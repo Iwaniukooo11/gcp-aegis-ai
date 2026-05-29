@@ -45,17 +45,17 @@ def post_alert(
     token = _oidc_token(audience)
 
     payload = {
-        "incident_id": incident_id,
-        "client_project_id": client_project_id,
-        "service_name": service_name,
-        "severity": severity,
-        "error_type": error_type,
-        "short_message": short_message,
-        "sanitized_stack_trace_preview": stack_trace_preview,
-        "ai_summary": ai_summary,
-        "ai_recommendation": ai_recommendation,
-        "formatted_message": formatted_message,
-        "fallback_text": fallback_text,
+        "incident_id": str(incident_id or ""),
+        "client_project_id": str(client_project_id or "unknown"),
+        "service_name": str(service_name or "unknown"),
+        "severity": str(severity or "ERROR"),
+        "error_type": str(error_type or ""),
+        "short_message": str(short_message or ""),
+        "sanitized_stack_trace_preview": str(stack_trace_preview or ""),
+        "ai_summary": str(ai_summary or ""),
+        "ai_recommendation": str(ai_recommendation or ""),
+        "formatted_message": str(formatted_message or ""),
+        "fallback_text": str(fallback_text or ""),
     }
 
     with httpx.Client(timeout=15) as client:

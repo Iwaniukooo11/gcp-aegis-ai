@@ -1,4 +1,4 @@
-"""Allowlisted Cloud Monitoring metrics the Query Processor can fetch."""
+"""Hardcoded GKE container metrics Gemini may request."""
 
 from typing import Literal, TypedDict
 
@@ -8,32 +8,42 @@ MetricValueKind = Literal[
     "counter",
 ]
 
-
-class FetchMetricSpec(TypedDict):
-    type: str
-    gcp_metric_type: str
-    description: str
-    value_kind: MetricValueKind
-
-
-ALLOWED_FETCH_METRICS: tuple[FetchMetricSpec, ...] = (
+ALLOWED_FETCH_METRICS: tuple[dict, ...] = (
     {
         "type": "cpu_utilization",
         "gcp_metric_type": "kubernetes.io/container/cpu/limit_utilization",
         "value_kind": "cpu_limit_fraction",
-        "description": "Fraction of container CPU limit in use (0.0–1.0, GKE k8s_container)",
+        "description": "CPU use as fraction of container limit (0–1)",
+    },
+    {
+        "type": "cpu_core_usage",
+        "gcp_metric_type": "kubernetes.io/container/cpu/core_usage_time",
+        "value_kind": "counter",
+        "description": "Cumulative CPU time (rate → cores)",
+    },
+    {
+        "type": "cpu_request_utilization",
+        "gcp_metric_type": "kubernetes.io/container/cpu/request_utilization",
+        "value_kind": "cpu_limit_fraction",
+        "description": "CPU use as fraction of request (0–1)",
     },
     {
         "type": "memory_utilization",
         "gcp_metric_type": "kubernetes.io/container/memory/used_bytes",
         "value_kind": "bytes",
-        "description": "Container memory used in bytes (GKE k8s_container)",
+        "description": "Memory used (bytes)",
+    },
+    {
+        "type": "memory_limit_utilization",
+        "gcp_metric_type": "kubernetes.io/container/memory/limit_utilization",
+        "value_kind": "cpu_limit_fraction",
+        "description": "Memory use as fraction of limit (0–1)",
     },
     {
         "type": "pod_restart_count",
         "gcp_metric_type": "kubernetes.io/container/restart_count",
         "value_kind": "counter",
-        "description": "Container restart count (GKE k8s_container)",
+        "description": "Container restart count",
     },
 )
 
@@ -60,30 +70,25 @@ METRIC_PLAN_RESPONSE_SCHEMA: dict = {
         },
         "metrics": {
             "type": "ARRAY",
-            "description": "Metrics to fetch; use only allowlisted type ids.",
+            "description": "Metrics to fetch from the hardcoded allowlist.",
             "items": {
                 "type": "OBJECT",
                 "properties": {
                     "type": {
                         "type": "STRING",
                         "enum": list(ALLOWED_METRIC_TYPE_IDS),
-                        "description": "Allowlisted metric id.",
                     },
                 },
                 "required": ["type"],
             },
         },
-        "rationale": {
-            "type": "STRING",
-            "description": "Short explanation of why these metrics were chosen.",
-        },
+        "rationale": {"type": "STRING"},
     },
     "required": ["window_minutes", "metrics", "rationale"],
 }
 
 
 def allowed_metrics_for_prompt() -> list[dict]:
-    """Return catalog entries suitable for embedding in a Gemini prompt."""
     return [
         {
             "type": m["type"],

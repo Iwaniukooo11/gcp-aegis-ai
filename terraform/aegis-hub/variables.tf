@@ -46,6 +46,24 @@ variable "slack_alert_channel_id" {
   default     = ""
 }
 
+variable "slack_bot_token" {
+  description = "Slack Bot User OAuth token (xoxb-...). Set in terraform.tfvars only; never commit."
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = can(regex("^xoxb-", var.slack_bot_token))
+    error_message = "slack_bot_token must be a Slack bot token starting with xoxb-."
+  }
+}
+
+variable "slack_signing_secret" {
+  description = "Slack app signing secret for request verification. Set in terraform.tfvars only; never commit."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "terraform_service_account_user_members" {
   description = "Optional IAM members allowed to attach the Cloud Run and Pub/Sub service accounts, e.g. user:you@example.com or serviceAccount:terraform@project.iam.gserviceaccount.com"
   type        = set(string)

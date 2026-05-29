@@ -3,6 +3,8 @@ region                     = "europe-central2"
 environment                = "dev"
 allowed_client_project_ids = ["your-client-project-id"]
 slack_alert_channel_id     = ""   # e.g. "C123ABC456"
+slack_bot_token            = ""   # xoxb-... from Slack app OAuth & Permissions
+slack_signing_secret       = ""   # optional; Slack app Basic Information → Signing Secret
 
 # Set these after building and pushing images:
 # incident_analyzer_image  = "europe-central2-docker.pkg.dev/aegis-hub-2137/aegis-services/incident-analyzer:latest"

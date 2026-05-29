@@ -1,13 +1,4 @@
-"""Vertex AI / Gemini integration for Query Processor.
-
-Three specialized single-turn generate_content calls per query:
-  1. Metric plan   — decide which Cloud Monitoring metrics to fetch
-  2. Analysis      — root-cause and diagnosis from fetched metric results
-  3. Slack format  — convert analysis to Slack mrkdwn
-
-Firestore messages[] are mapped to Vertex Content history for calls #1 and #2
-to give Gemini awareness of prior turns in the incident conversation.
-"""
+"""Vertex AI / Gemini integration for Query Processor."""
 import json
 
 import vertexai
@@ -32,12 +23,7 @@ def _ensure_init() -> None:
         _initialized = True
 
 
-def _get_model() -> GenerativeModel:
-    _ensure_init()
-    return GenerativeModel(get_settings().vertex_model)
-
-
-def _build_k8s_container_filter(session: dict) -> str:
+def build_k8s_container_filter(session: dict) -> str:
     parts = ['resource.type="k8s_container"']
     service_name = str(session.get("service_name") or "").strip()
     namespace = str(session.get("namespace") or "").strip()
@@ -51,11 +37,7 @@ def _build_k8s_container_filter(session: dict) -> str:
     return " AND ".join(parts)
 
 
-def _normalize_metric_item(
-    item: object,
-    session: dict,
-    window_minutes: int,
-) -> dict | None:
+def _normalize_metric_item(item: object, session: dict, window_minutes: int) -> dict | None:
     if not isinstance(item, dict):
         return None
     type_id = str(item.get("type") or "").strip()
@@ -64,13 +46,12 @@ def _normalize_metric_item(
     return {
         "metric_type": GCP_METRIC_TYPE_BY_ID[type_id],
         "type": type_id,
-        "filter": _build_k8s_container_filter(session),
+        "filter": build_k8s_container_filter(session),
         "window_minutes": window_minutes,
     }
 
 
 def _normalize_metric_plan(raw: object, session: dict | None = None) -> dict:
-    """Coerce Gemini JSON into executor-ready MetricFetchPlan."""
     session = session or {}
     if not isinstance(raw, dict):
         return {"metrics": [], "rationale": "", "window_minutes": 30}
@@ -99,25 +80,19 @@ def _metric_planner_system_prompt() -> str:
     allowed = ", ".join(ALLOWED_METRIC_TYPE_IDS)
     return (
         "You are an SRE metric planner for a GKE mock client environment.\n"
-        "Choose which allowlisted metrics to fetch from Cloud Monitoring.\n\n"
-        "ALLOWLIST (only these type values are valid):\n"
+        "Choose which metrics to fetch from Cloud Monitoring.\n\n"
+        "ALLOWLIST (pick only these type values):\n"
         f"{catalog}\n\n"
         "Rules:\n"
         f"- Each metrics[].type must be one of: {allowed}.\n"
-        "- Do not invent metric names or GCP paths; the service maps type to Monitoring.\n"
-        "- Pick 0-3 metrics relevant to the user question and incident context.\n"
-        "- window_minutes must be between 5 and 60.\n"
-        "- Labels (container, namespace, cluster) are applied automatically from incident context.\n"
-        "- Return JSON only, matching the response schema."
+        "- Pick 0-3 metrics relevant to the user question.\n"
+        "- window_minutes between 5 and 60.\n"
+        "- Container/namespace/cluster labels are applied automatically.\n"
+        "- Return JSON only."
     )
 
 
 def messages_to_contents(messages: list[dict]) -> list[Content]:
-    """Convert Firestore messages[] to Vertex Content history objects.
-
-    Firestore role "user" → Vertex role "user".
-    Anything else (typically "model") → Vertex role "model".
-    """
     return [
         Content(
             role="user" if m["role"] == "user" else "model",
@@ -127,18 +102,7 @@ def messages_to_contents(messages: list[dict]) -> list[Content]:
     ]
 
 
-def plan_metrics(
-    session: dict,
-    messages: list[dict],
-    user_question: str,
-) -> dict:
-    """Gemini step 1 — decide which allowlisted Cloud Monitoring metrics to fetch.
-
-    Returns a MetricFetchPlan dict with keys:
-      metrics: list of {type, metric_type, filter, window_minutes}
-      rationale: string
-      window_minutes: int
-    """
+def plan_metrics(session: dict, messages: list[dict], user_question: str) -> dict:
     _ensure_init()
     model = GenerativeModel(
         get_settings().vertex_model,

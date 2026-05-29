@@ -98,19 +98,18 @@ async def query_incident(incident_id: str, body: QueryRequest) -> dict:
 
     messages_with_user = list(session.get("messages", [])) + [user_message]
 
+    client_project_id = session.get("client_project_id", "")
+    anchor_time = metric_plan.parse_session_anchor(session)
+
     try:
         planned = vertex.plan_metrics(session, messages_with_user, body.text)
-        metric_plan_body = metric_plan.supplement_metric_plan_for_question(
-            planned, body.text, session
-        )
+        metric_plan_body = metric_plan.constrain_plan_to_catalog(planned, session)
     except Exception as exc:
         logger.error("Gemini metric plan failed for %s: %s", incident_id, exc)
         raise HTTPException(status_code=500, detail="gemini_metric_plan_failed") from exc
 
     metric_results: dict = {}
     metrics_fetched = False
-    client_project_id = session.get("client_project_id", "")
-    anchor_time = metric_plan.parse_session_anchor(session)
     if metric_plan_body.get("metrics") and client_project_id:
         try:
             metric_results = monitoring.execute_plan(

@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     slack_bot_token: str
     query_processor_url: str
     default_slack_channel_id: str
+    gcp_project: str = ""
+    firestore_database: str = "(default)"
     incident_analyzer_url: str = ""
     environment: str = "dev"
 

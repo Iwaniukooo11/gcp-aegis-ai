@@ -67,6 +67,43 @@ def update_receipt(idempotency_key: str, updates: dict) -> None:
     )
 
 
+def get_session(incident_id: str) -> dict | None:
+    """Return session document if it exists."""
+    db = _get_client()
+    doc = db.collection("sessions").document(incident_id).get()
+    return doc.to_dict() if doc.exists else None
+
+
+def claim_receipt(idempotency_key: str, incident_id: str, metadata: dict) -> tuple[dict, bool]:
+    """Claim idempotency key for a new delivery or return existing receipt for resume.
+
+    Returns (receipt_dict, is_new_claim).
+    """
+    db = _get_client()
+    doc_ref = db.collection("incident_receipts").document(idempotency_key)
+    existing = doc_ref.get()
+    if existing.exists:
+        return existing.to_dict() or {}, False
+
+    s = get_settings()
+    ttl = datetime.now(tz=timezone.utc) + timedelta(hours=s.receipt_ttl_hours)
+    receipt = {
+        "idempotency_key": idempotency_key,
+        "incident_id": incident_id,
+        "bigquery_persisted": False,
+        "session_created": False,
+        "slack_handoff_succeeded": False,
+        "slack_handoff_error": "",
+        "created_at": datetime.now(tz=timezone.utc).isoformat(),
+        "updated_at": datetime.now(tz=timezone.utc).isoformat(),
+        "ttl": ttl,
+        "pipeline": {},
+        **metadata,
+    }
+    doc_ref.set(receipt)
+    return receipt, True
+
+
 def create_session(
     incident_id: str,
     client_project_id: str,
@@ -77,6 +114,7 @@ def create_session(
     error_type: str,
     ai_summary: str,
     initial_model_content: str,
+    log_timestamp: str = "",
 ) -> None:
     """Create the initial Firestore session document after BigQuery succeeds.
 
@@ -101,6 +139,7 @@ def create_session(
                 {"role": "model", "content": initial_model_content}
             ],
             "created_at": now.isoformat(),
+            "log_timestamp": log_timestamp or now.isoformat(),
             "updated_at": now.isoformat(),
             "ttl": ttl,
         }

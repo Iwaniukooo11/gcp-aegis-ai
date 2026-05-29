@@ -1,3 +1,16 @@
+locals {
+  log_sink_filter_lines = concat(
+    [
+      "severity >= ERROR",
+      "AND resource.type=\"k8s_container\"",
+    ],
+    var.log_sink_namespace != "" ? [
+      format("AND resource.labels.namespace_name=\"%s\"", var.log_sink_namespace),
+    ] : [],
+  )
+  log_sink_filter = join("\n", local.log_sink_filter_lines)
+}
+
 # ------------------------------------------------------------------------------
 # CLOUD LOGGING ROUTER SINK (The Alarm)
 # ------------------------------------------------------------------------------
@@ -5,14 +18,9 @@ resource "google_logging_project_sink" "error_to_hub" {
   project = var.client_project_id
   name    = "aegis-error-log-sink"
 
-  # Point the sink directly to the Hub's Pub/Sub topic
   destination = "pubsub.googleapis.com/projects/${var.hub_project_id}/topics/${var.hub_pubsub_topic_name}"
 
-  # ONLY catch errors from Kubernetes containers (ignores normal info logs to save money)
-  filter = <<-EOT
-    severity >= ERROR
-    AND resource.type="k8s_container"
-  EOT
+  filter = local.log_sink_filter
 
   # This creates a unique robot email just for this sink
   unique_writer_identity = true

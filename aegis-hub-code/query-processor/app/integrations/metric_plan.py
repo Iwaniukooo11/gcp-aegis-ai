@@ -1,4 +1,4 @@
-"""Metric plan helpers: question-driven supplements and result summaries."""
+"""Metric plan helpers: availability constraints and result summaries."""
 
 from datetime import datetime, timezone
 
@@ -7,45 +7,30 @@ from app.integrations.metric_catalog import (
     GCP_METRIC_TYPE_TO_ID,
     METRIC_VALUE_KIND_BY_ID,
 )
-from app.integrations.vertex import _build_k8s_container_filter, _normalize_metric_item
-
-_QUESTION_METRIC_KEYWORDS: tuple[tuple[str, str], ...] = (
-    ("cpu", "cpu_utilization"),
-    ("memory", "memory_utilization"),
-    ("mem", "memory_utilization"),
-    ("restart", "pod_restart_count"),
-)
+from app.integrations.vertex import _normalize_metric_item
 
 _LEGACY_CUMULATIVE_CPU = "kubernetes.io/container/cpu/core_usage_time"
 
 
-def supplement_metric_plan_for_question(plan: dict, question: str, session: dict) -> dict:
-    """Ensure allowlisted metrics implied by the operator question are in the plan."""
-    q = question.lower()
+def constrain_plan_to_catalog(plan: dict, session: dict) -> dict:
+    """Keep only metrics Gemini picked from the hardcoded allowlist."""
+    allowed = set(GCP_METRIC_TYPE_BY_ID.keys())
     try:
         window = int(plan.get("window_minutes", 30))
     except (TypeError, ValueError):
         window = 30
     window = max(5, min(window, 60))
 
-    existing_types: set[str] = set()
     metrics = []
     for item in plan.get("metrics", []):
         if not isinstance(item, dict):
             continue
         type_id = str(item.get("type") or "").strip()
-        if type_id in GCP_METRIC_TYPE_BY_ID:
-            existing_types.add(type_id)
-            spec = _normalize_metric_item({"type": type_id}, session, window)
-            if spec is not None:
-                metrics.append(spec)
-
-    for keyword, type_id in _QUESTION_METRIC_KEYWORDS:
-        if keyword in q and type_id not in existing_types:
-            spec = _normalize_metric_item({"type": type_id}, session, window)
-            if spec is not None:
-                metrics.append(spec)
-                existing_types.add(type_id)
+        if type_id not in allowed:
+            continue
+        spec = _normalize_metric_item({"type": type_id}, session, window)
+        if spec is not None:
+            metrics.append(spec)
 
     return {
         "metrics": metrics,
@@ -55,8 +40,7 @@ def supplement_metric_plan_for_question(plan: dict, question: str, session: dict
 
 
 def parse_session_anchor(session: dict) -> datetime | None:
-    """Return incident time from session created_at for Monitoring lookback."""
-    raw = session.get("created_at")
+    raw = session.get("log_timestamp") or session.get("created_at")
     if not raw:
         return None
     if isinstance(raw, str):
@@ -113,7 +97,9 @@ def _point_nearest_anchor(points: list[dict], anchor: datetime | None) -> dict |
         if best_delta is None or delta < best_delta:
             best_delta = delta
             best = point
-    return best or points[-1]
+    if best is not None and best_delta is not None and best_delta <= 3600:
+        return best
+    return points[-1]
 
 
 def _average_cores_from_cumulative(points: list[dict]) -> float | None:
@@ -166,7 +152,7 @@ def _summarize_series(
             "display": f"{percent}% of container CPU limit",
         }
 
-    if gcp_metric == _LEGACY_CUMULATIVE_CPU:
+    if type_id == "cpu_core_usage" or gcp_metric == _LEGACY_CUMULATIVE_CPU:
         cores = _average_cores_from_cumulative(all_points)
         if cores is not None:
             return {
@@ -207,7 +193,6 @@ def summarize_metric_results(
     metric_results: dict,
     anchor_time: datetime | None = None,
 ) -> dict:
-    """Build type-keyed summaries with correct units for Slack formatting."""
     summary: dict = {}
     for metric_key, payload in metric_results.items():
         if isinstance(payload, dict) and payload.get("error"):
@@ -232,22 +217,36 @@ def summarize_metric_results(
     return summary
 
 
+def _cpu_summary_line(summary: dict) -> str | None:
+    for key in ("cpu_utilization", "cpu_core_usage"):
+        cpu = summary.get(key, {})
+        if cpu.get("status") == "ok" and cpu.get("display"):
+            return f"CPU at incident time: *{cpu['display']}*"
+    return None
+
+
 def format_metric_facts_line(question: str, summary: dict) -> str | None:
-    """Deterministic metric sentence so Slack does not misread cumulative counters."""
     q = question.lower()
+    if "all metric" in q or "all metrics" in q:
+        lines = []
+        for type_id, entry in summary.items():
+            if entry.get("status") == "ok" and entry.get("display"):
+                lines.append(f"{type_id}: *{entry['display']}*")
+        return "\n".join(lines) if lines else None
+
     lines: list[str] = []
 
-    if "cpu" in q:
-        cpu = summary.get("cpu_utilization", {})
-        if cpu.get("status") == "ok" and cpu.get("display"):
-            lines.append(f"CPU at incident time: *{cpu['display']}*")
-        elif cpu.get("status") in ("no_data", "no_points", "error"):
-            lines.append("CPU at incident time: no Monitoring data in lookback window.")
+    cpu_line = _cpu_summary_line(summary)
+    if cpu_line:
+        lines.append(cpu_line)
+    elif "cpu" in q:
+        lines.append("CPU at incident time: no Monitoring data in lookback window.")
 
-    if "mem" in q or "memory" in q:
-        mem = summary.get("memory_utilization", {})
-        if mem.get("status") == "ok" and mem.get("display"):
-            lines.append(f"Memory at incident time: *{mem['display']}*")
+    mem = summary.get("memory_utilization", {})
+    if mem.get("status") == "ok" and mem.get("display"):
+        lines.append(f"Memory at incident time: *{mem['display']}*")
+    elif ("mem" in q or "memory" in q) and mem.get("status") in ("no_data", "no_points", "error"):
+        lines.append("Memory at incident time: no Monitoring data in lookback window.")
 
     if "restart" in q:
         restarts = summary.get("pod_restart_count", {})
