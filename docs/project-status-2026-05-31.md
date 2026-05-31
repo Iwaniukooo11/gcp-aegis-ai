@@ -58,108 +58,106 @@ Workload resources:
 
 This is the smallest live-tested setup that runs both mock services reliably and still gives Cloud Monitoring useful CPU/memory signals.
 
-## Remaining Demo Caution
+## Final Live Verification - 2026-05-31 16:25 UTC
 
-The system is no longer obviously incomplete. Before the professor demo, still run
-one short Slack UI check from the real workspace:
+Main is now verified with the realistic checkout/pricing dependency demo, not
+the older direct `ValueError` fallback.
 
-1. trigger a fresh incident
-2. confirm Slack alert appears
-3. run `/aegis-latest-incidents 5`
-4. ask `@Aegis INC-... what were cpu and memory during the incident?`
-5. confirm the reply includes real Cloud Monitoring facts
+Merged pull requests in this verification pass:
 
-This final Slack UI check matters because the backend can be verified from code
-and Google Cloud, but exact visible Slack rendering is controlled by Slack app
-configuration.
+- #33 `Model realistic checkout dependency demo`
+- #34 `Format metric facts with safe units`
+- #35 `Aggregate memory metric series`
 
-## Final Live Verification - 2026-05-31 13:30 UTC
+Deployed revisions:
 
-Pull request #30 fixed a real Slack Events SLO issue. Before the fix,
-`POST /slack/events` request latency was `10.551997026s`, which violates
-Slack's 3 second acknowledgement requirement. The Gateway now acknowledges
-Slack first, then runs Query Processor and Slack posting work in detached
-tracked asyncio tasks. Cloud Run `cpu_idle = false` is enabled so those detached
-tasks can finish after the response.
-
-Latest merged main commit at verification time:
-
-- `c373ae7 Ack Slack webhooks before async work (#30)`
-
-Open pull requests:
-
-- none
+- Incident Analyzer: `aegis-incident-analyzer-00008-dzw`
+- Query Processor: `aegis-query-processor-00009-2vs`
+- Slack Gateway: `aegis-slack-gateway-00008-kc5`
+- client images: tag `948b203`
 
 Local verification:
 
-- `cd tests && uv run pytest -q` -> `49 passed`
-- `python -m compileall aegis-hub-code/slack-gateway/app aegis-hub-code/incident-analyzer/app aegis-hub-code/query-processor/app` -> success
-- `terraform/aegis-hub` plan -> no changes
-- `terraform/client-agent` plan -> no changes
-- `./client-backend/scripts/smoke-gke.sh` -> rollouts healthy, readiness OK, checkout path OK
+- `uv run pytest` in `client-backend/apps/python-api` -> `21 passed`
+- `./gradlew test` in `client-backend/apps/java-api` -> build successful
+- `uv run python -m unittest discover -s tests` in `aegis-hub-code/incident-analyzer` -> `1 passed`
+- `uv run python -m unittest discover -s tests` in `aegis-hub-code/query-processor` -> `2 passed`
+- `uv run python -m compileall app` in Incident Analyzer and Query Processor -> success
+- `terraform/aegis-hub plan` -> no changes after reconciliation
+- `./client-backend/scripts/smoke-gke.sh` -> readiness, info, and normal checkout OK
 - Pub/Sub dead-letter subscription `aegis-dead-letter-pull` -> empty
 
 Fresh incident verified:
 
-- client correlation id: `demo-final-1780234199`
-- client log timestamp: `2026-05-31T13:30:01.100099959Z`
-- client pod: `python-api-8496d86956-56jj8`
+- trigger: `POST /admin/failures/pricing-latency?seconds=15` on `java-api`
+- customer request: `GET /api/checkout` on `python-api`
+- client correlation id: `demo-checkout-latency-1780244741`
+- client log timestamp: `2026-05-31T16:25:43.629220961Z`
+- client pod: `python-api-566d4c54c5-pfjmh`
 - service: `python-api`
-- error type: `ValueError`
-- `incident_candidate`: `true`
-- BigQuery incident: `INC-2026-671169`
+- error type: `DownstreamTimeoutError`
+- scenario: `PYTHON_DOWNSTREAM_TIMEOUT`
+- path: `/api/checkout`
+- upstream service: `java-api`
+- HTTP status: `504`
+- log message: `Checkout failed because java-api pricing request exceeded configured timeout`
+- BigQuery incident: `INC-2026-567060`
 - terminal status: `SUCCESS`
-- Slack channel: `C0B4LVB5YR5`
-- Slack message timestamp: `1780234233.603399`
-- Firestore session exists with `client_project_id`, `service_name`,
-  `cluster_name`, `namespace`, `pod_name`, `error_type`, `log_timestamp`, and
-  initial `messages`
-- Firestore receipt has `analysis_completed=true`, `session_created=true`,
-  `slack_handoff_succeeded=true`, and `bigquery_persisted=true`
+- Slack channel: `C0B4Z47V5RB`
+- Slack message timestamp: `1780244759.470559`
 
-Observed live SLI/SLO evidence:
+BigQuery row for `INC-2026-567060` contains:
 
-| SLI | Target | Observed |
-| --- | --- | --- |
-| Slack Events ack latency | `< 3s` | `0.003671534s` Cloud Run latency on revision `aegis-slack-gateway-00007-jg6` |
-| Slash command ack latency | `< 3s` | `0.005001521s` Cloud Run latency on revision `aegis-slack-gateway-00007-jg6` |
-| Incident query end-to-end | `< 30s` | `9.646508471s` for `INC-2026-671169` |
-| Latest incidents query | `< 5s` | Query Processor returned `200`; Gateway ack stayed `0.005001521s` |
-| Alert relay latency | `< 2s` | `0.355391194s` for Incident Analyzer -> Slack Gateway -> Slack |
+- `service_name=python-api`
+- `error_type=DownstreamTimeoutError`
+- `severity=ERROR`
+- `short_message=Checkout failed because java-api pricing request exceeded configured timeout`
+- `ai_summary=Customer checkout failed because the java-api pricing dependency did not respond before the configured timeout.`
+- `terminal_status=SUCCESS`
+- Slack channel and message timestamp
 
-Cloud Monitoring verification for `INC-2026-671169`:
+Firestore session for `INC-2026-567060` contains:
 
-- project: `aegis-client-420`
-- cluster: `mock-gke-standard`
-- namespace: `aegis-demo`
-- pod: `python-api-8496d86956-56jj8`
-- container: `python-api`
-- anchor time: `2026-05-31T13:30:01.100099+00:00`
-- CPU at incident time: `0.59% of container CPU limit`
-- memory at incident time: `6.9 MiB`
-- CPU request utilization: `11.73% of requested CPU`
-- memory limit utilization: `1.35% of container memory limit`
+- `client_project_id=aegis-client-420`
+- `cluster_name=mock-gke-standard`
+- `namespace=aegis-demo`
+- `pod_name=python-api-566d4c54c5-pfjmh`
+- `service_name=python-api`
+- `scenario=PYTHON_DOWNSTREAM_TIMEOUT`
+- `path=/api/checkout`
+- `upstream_service=java-api`
+- `status_code=504`
+- `log_timestamp=2026-05-31T16:25:43.629220961Z`
+- `messages` with the initial incident context, user questions, and model replies
 
-The Firestore conversation for `INC-2026-671169` contains the initial incident
-model context, the user question, and the model reply with the same CPU and
-memory facts. This proves the bot keeps incident context by `incident_id` and
-uses true Cloud Monitoring values instead of invented metrics.
+Slack readback now works with the installed Slack history scopes:
 
-Slack API limitation:
+- `conversations.replies` returned the alert thread successfully
+- alert text: checkout failed due to `java-api` pricing timeout
+- slash command simulation returned recent incidents and includes `INC-2026-567060`
+- no INFO/startup logs appear in the latest incidents result
+- older direct `/chaos/exception` fallback incidents still appear because they are real historical ERROR incidents
 
-- `conversations.replies` cannot be used by the current bot token because Slack
-  returns `missing_scope` and requires one of `channels:history`,
-  `groups:history`, `mpim:history`, or `im:history`.
-- Because of that, backend verification can prove `chat.postMessage` returned
-  `200 OK` and Firestore has the generated messages, but the exact rendered
-  Slack thread cannot be pulled back through the Slack API unless the app gets
-  history scopes.
+Final Slack follow-up reply for `INC-2026-567060`:
+
+```text
+CPU near incident time: 8.92% of container CPU limit
+Memory near incident time: 54.6 MiB
+
+Root Cause Candidates:
+- The java-api service was unresponsive or experiencing high latency, causing python-api's pricing request to exceed its configured timeout.
+- Network latency or connectivity issues between python-api and java-api led to the timeout.
+```
+
+This proves the bot keeps incident context by `incident_id`, uses the Firestore
+conversation state, queries real Cloud Monitoring data, and does not invent CPU
+or memory values.
 
 Demo reliability note:
 
-- Kubernetes auto chaos remains disabled by default. This is intentional for
-  the professor demo because incidents should be deterministic and manually
-  triggered with a known `X-Correlation-ID`.
-- Manual chaos endpoints produce valid structured error logs at sensible demo
-  frequency. Do not enable auto chaos unless you explicitly want continuous
-  surprise incidents.
+- Kubernetes auto chaos remains disabled by default.
+- Use `/admin/failures/pricing-latency?seconds=15` as the primary demo trigger.
+- Keep `/chaos/exception` only as a fallback smoke test; it is expected and
+  correct for the bot to identify that fallback as intentional chaos.
+- Leave Hub Cloud Run services on for preparation; they scale to zero.
+- Destroy the client Terraform stack when done working if GCP credits matter.
