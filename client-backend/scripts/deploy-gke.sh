@@ -27,6 +27,7 @@ docker push "${PYTHON_IMAGE}"
 docker push "${JAVA_LATEST_IMAGE}"
 docker push "${PYTHON_LATEST_IMAGE}"
 
+kubectl -n aegis-demo delete deployment java-api python-api --ignore-not-found --wait=true
 kubectl apply -k "${CLIENT_DIR}/k8s"
 kubectl -n aegis-demo set image deployment/java-api "java-api=${JAVA_IMAGE}"
 kubectl -n aegis-demo set image deployment/python-api "python-api=${PYTHON_IMAGE}"
