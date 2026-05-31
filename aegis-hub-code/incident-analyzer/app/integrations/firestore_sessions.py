@@ -84,6 +84,13 @@ def create_session(
     error_type: str,
     ai_summary: str,
     initial_model_content: str,
+    scenario: str = "",
+    short_message: str = "",
+    stack_trace_preview: str = "",
+    upstream_service: str = "",
+    http_method: str = "",
+    path: str = "",
+    status_code: int | None = None,
     log_timestamp: str = "",
 ) -> None:
     """Create the initial Firestore session document for follow-up queries.
@@ -105,6 +112,13 @@ def create_session(
             "pod_name": pod_name,
             "severity": severity,
             "error_type": error_type,
+            "scenario": scenario,
+            "short_message": short_message,
+            "stack_trace_preview": stack_trace_preview,
+            "upstream_service": upstream_service,
+            "http_method": http_method,
+            "path": path,
+            "status_code": status_code,
             "ai_summary": ai_summary,
             "messages": [
                 {"role": "model", "content": initial_model_content}

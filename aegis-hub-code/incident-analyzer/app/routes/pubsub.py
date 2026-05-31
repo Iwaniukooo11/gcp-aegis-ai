@@ -110,6 +110,10 @@ def _extract_log_fields(log_entry: dict) -> dict:
         "error_type": payload.get("error_type", ""),
         "message": payload.get("message", ""),
         "stack_trace_preview": payload.get("stack_trace_preview", ""),
+        "upstream_service": payload.get("upstream_service", ""),
+        "http_method": payload.get("http_method", ""),
+        "path": payload.get("path", ""),
+        "status_code": payload.get("status_code"),
     }
 
 
@@ -183,13 +187,27 @@ def _analyze_or_load_from_receipt(
     return analysis
 
 
-def _build_initial_session_content(incident_id: str, service_name: str, error_type: str, ai_summary: str) -> str:
+def _build_initial_session_content(
+    incident_id: str,
+    service_name: str,
+    error_type: str,
+    ai_summary: str,
+    short_message: str = "",
+    upstream_service: str = "",
+) -> str:
+    context_parts = []
+    if short_message:
+        context_parts.append(f"Signal: {short_message}")
+    if upstream_service:
+        context_parts.append(f"Upstream dependency: {upstream_service}")
+    context = " ".join(context_parts)
     if ai_summary:
         return (
             f"Incident {incident_id}: {service_name} reported {error_type or 'an error'}. "
-            f"Initial AI summary: {ai_summary}"
+            f"{context} Initial AI summary: {ai_summary}"
         )
-    return f"Incident {incident_id}: {service_name} - AI analysis unavailable."
+    suffix = f" {context}" if context else ""
+    return f"Incident {incident_id}: {service_name} - AI analysis unavailable.{suffix}"
 
 
 def _build_fallback_text(incident_id: str, client_project_id: str, service_name: str, severity: str) -> str:
@@ -289,6 +307,8 @@ async def receive_pubsub(envelope: PubSubEnvelope, request: Request) -> dict:
             service_name,
             normalized.get("error_type", ""),
             ai_summary,
+            normalized.get("short_message", "") or fields.get("message", ""),
+            fields.get("upstream_service", ""),
         )
         try:
             firestore_sessions.create_session(
@@ -302,6 +322,13 @@ async def receive_pubsub(envelope: PubSubEnvelope, request: Request) -> dict:
                 error_type=normalized.get("error_type", ""),
                 ai_summary=ai_summary,
                 initial_model_content=initial_content,
+                scenario=fields.get("scenario", ""),
+                short_message=normalized.get("short_message", "") or fields.get("message", ""),
+                stack_trace_preview=normalized.get("stack_trace_preview", "") or fields.get("stack_trace_preview", ""),
+                upstream_service=fields.get("upstream_service", ""),
+                http_method=fields.get("http_method", ""),
+                path=fields.get("path", ""),
+                status_code=fields.get("status_code"),
                 log_timestamp=fields.get("timestamp", ""),
             )
             firestore_sessions.update_receipt(idem_key, {"session_created": True})

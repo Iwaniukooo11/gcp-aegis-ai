@@ -28,6 +28,51 @@ def _get_model() -> GenerativeModel:
     return GenerativeModel(get_settings().vertex_model)
 
 
+def _structured_payload(raw_log: dict) -> dict:
+    payload = raw_log.get("jsonPayload")
+    if isinstance(payload, dict):
+        return payload
+    text_payload = raw_log.get("textPayload", "")
+    if not isinstance(text_payload, str):
+        return {}
+    try:
+        decoded = json.loads(text_payload)
+    except json.JSONDecodeError:
+        return {}
+    return decoded if isinstance(decoded, dict) else {}
+
+
+def _checkout_dependency_classification(raw_log: dict) -> dict | None:
+    payload = _structured_payload(raw_log)
+    if payload.get("path") != "/api/checkout" or payload.get("upstream_service") != "java-api":
+        return None
+
+    error_type = str(payload.get("error_type") or "")
+    message = str(payload.get("message") or payload.get("stack_trace_preview") or "").strip()
+    if "timeout" in error_type.lower() or "timeout" in message.lower():
+        return {
+            "ai_summary": (
+                "Customer checkout failed because the java-api pricing dependency did not respond "
+                "before the configured timeout."
+            ),
+            "ai_recommendation": (
+                "Check java-api pricing latency and availability first, then verify pod CPU, memory, "
+                "and recent rollout or configuration changes."
+            ),
+        }
+
+    return {
+        "ai_summary": (
+            "Customer checkout failed because the java-api pricing dependency returned an error "
+            "to python-api."
+        ),
+        "ai_recommendation": (
+            "Inspect java-api pricing health, recent logs, and recent rollout or configuration changes; "
+            "use Monitoring metrics to confirm whether CPU or memory pressure contributed."
+        ),
+    }
+
+
 def normalize_log(raw_log: dict) -> dict:
     """Gemini step 1 — extract structured incident fields from a raw Cloud Logging entry.
 
@@ -42,6 +87,9 @@ def normalize_log(raw_log: dict) -> dict:
         "error_type (string), short_message (string, max 120 chars), "
         "stack_trace_preview (string, max 500 chars, most relevant part only), "
         "service_name (string), severity (string). "
+        "If jsonPayload.upstream_service is present, short_message should mention the dependency. "
+        "Do not call an incident chaos engineering unless the failing request path is /chaos/* "
+        "or the message explicitly says chaos. "
         "If a field is unavailable set it to null."
     )
     response = model.generate_content(
@@ -59,10 +107,17 @@ def classify_incident(normalized: dict, raw_log: dict) -> dict:
 
     Returns a dict with keys: ai_summary (string), ai_recommendation (string).
     """
+    business_classification = _checkout_dependency_classification(raw_log)
+    if business_classification is not None:
+        return business_classification
+
     model = _get_model()
     system_prompt = (
         "You are an SRE incident analyst. "
         "Given the normalized incident fields and original log, produce a concise diagnosis. "
+        "Focus on the business symptom and dependency path. "
+        "Do not describe an incident as intentional chaos unless the failing request path is /chaos/* "
+        "or the log message explicitly says chaos. "
         "Return ONLY valid JSON with keys: "
         "ai_summary (1-2 sentences explaining likely cause), "
         "ai_recommendation (1-2 actionable next steps)."
@@ -91,6 +146,7 @@ def format_slack_alert(incident_id: str, normalized: dict, classification: dict)
         "You are formatting an SRE incident alert for Slack (mrkdwn). "
         "Use *bold* for important values. Keep it concise — max 5 lines. "
         "Include: incident ID, service, error type, severity, AI summary, recommendation. "
+        "Do not add chaos wording unless the provided AI summary or recommendation says chaos. "
         "End with a hint: reply with @aegis-bot <incident_id> <your question>. "
         "Return ONLY the Slack mrkdwn string, no JSON."
     )
