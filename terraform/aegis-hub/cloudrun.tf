@@ -11,6 +11,14 @@ resource "google_cloud_run_v2_service" "slack_gateway" {
     containers {
       image = var.slack_gateway_image
 
+      resources {
+        limits = {
+          cpu    = "1000m"
+          memory = "512Mi"
+        }
+        cpu_idle = false
+      }
+
       env {
         name  = "ENVIRONMENT"
         value = var.environment

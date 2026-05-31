@@ -4,11 +4,13 @@ Slack requires a response within 3 seconds. This handler acks immediately
 with an ephemeral "fetching..." message and posts the full result via
 response_url in a background task.
 """
+import asyncio
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
+from app.background import schedule
 from app.integrations import query_processor_client, slack_web_api
 from app.security import verify_slack_signature
 
@@ -52,25 +54,38 @@ async def _fetch_and_post(
 ) -> None:
     """Background task: call QP and post result via response_url."""
     try:
-        data = query_processor_client.get_latest_incidents(limit=limit)
+        data = await asyncio.to_thread(query_processor_client.get_latest_incidents, limit=limit)
         text = _format_incidents_list(data)
     except Exception as exc:
         logger.error("QP latest incidents failed: %s", exc)
         text = "Failed to fetch incidents. Please try again."
 
     try:
-        slack_web_api.post_to_response_url(response_url, text)
+        await asyncio.to_thread(slack_web_api.post_to_response_url, response_url, text)
     except Exception as exc:
         logger.warning("response_url post failed: %s; posting fallback to channel", exc)
         if channel_id:
-            slack_web_api.post_message(
+            await asyncio.to_thread(
+                slack_web_api.post_message,
                 channel=channel_id,
                 text=f"<@{user_id}> {text}" if user_id else text,
             )
 
 
+def _schedule_fetch_and_post(
+    limit: int,
+    response_url: str,
+    channel_id: str,
+    user_id: str,
+) -> None:
+    schedule(
+        _fetch_and_post(limit, response_url, channel_id, user_id),
+        name=f"slack-command:latest-incidents:{limit}",
+    )
+
+
 @router.post("/commands", dependencies=[Depends(verify_slack_signature)])
-async def slack_commands(request: Request, background_tasks: BackgroundTasks) -> JSONResponse:
+async def slack_commands(request: Request) -> JSONResponse:
     """Handle Slack slash command payloads."""
     form = await request.form()
     command = form.get("command", "")
@@ -88,7 +103,7 @@ async def slack_commands(request: Request, background_tasks: BackgroundTasks) ->
     except ValueError:
         limit = 10
 
-    background_tasks.add_task(_fetch_and_post, limit, response_url, channel_id, user_id)
+    _schedule_fetch_and_post(limit, response_url, channel_id, user_id)
 
     return JSONResponse({
         "response_type": "ephemeral",

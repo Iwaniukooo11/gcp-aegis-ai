@@ -12,9 +12,10 @@ import logging
 import re
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 
+from app.background import schedule
 from app.config import get_settings
 from app.integrations import query_processor_client, slack_web_api
 from app.integrations.query_processor_client import QueryProcessorError
@@ -55,7 +56,7 @@ async def _query_incident_with_session_retry(incident_id: str, question: str) ->
     last_exc: Exception | None = None
     for attempt in range(SESSION_RETRY_ATTEMPTS):
         try:
-            return query_processor_client.query_incident(incident_id, question)
+            return await asyncio.to_thread(query_processor_client.query_incident, incident_id, question)
         except Exception as exc:
             if not _is_session_not_ready(exc):
                 raise
@@ -96,6 +97,18 @@ def _slack_text_for_query_error(incident_id: str, exc: Exception) -> str:
     )
 
 
+async def _post_slack_reply(channel: str, text: str, thread_ts: str | None) -> None:
+    try:
+        await asyncio.to_thread(
+            slack_web_api.post_message,
+            channel=channel,
+            text=text,
+            thread_ts=thread_ts,
+        )
+    except Exception as exc:
+        logger.error("Failed to post Slack reply: %s", exc)
+
+
 async def _handle_mention(
     incident_id: str | None,
     question: str,
@@ -104,7 +117,7 @@ async def _handle_mention(
 ) -> None:
     """Background task: call Query Processor and post result to Slack."""
     if incident_id is None:
-        slack_web_api.post_message(
+        await _post_slack_reply(
             channel=channel,
             text=(
                 "Could not find an incident ID in your message. "
@@ -115,7 +128,7 @@ async def _handle_mention(
         return
 
     if not question.strip():
-        slack_web_api.post_message(
+        await _post_slack_reply(
             channel=channel,
             text=(
                 f"Please include a question after *{incident_id}* "
@@ -132,14 +145,23 @@ async def _handle_mention(
         logger.error("QP query failed for %s: %s", incident_id, exc)
         slack_text = _slack_text_for_query_error(incident_id, exc)
 
-    try:
-        slack_web_api.post_message(channel=channel, text=slack_text, thread_ts=thread_ts)
-    except Exception as exc:
-        logger.error("Failed to post Slack reply for %s: %s", incident_id, exc)
+    await _post_slack_reply(channel=channel, text=slack_text, thread_ts=thread_ts)
+
+
+def _schedule_mention(
+    incident_id: str | None,
+    question: str,
+    channel: str,
+    thread_ts: str | None,
+) -> None:
+    schedule(
+        _handle_mention(incident_id, question, channel, thread_ts),
+        name=f"slack-mention:{incident_id or 'missing-incident'}",
+    )
 
 
 @router.post("/events", dependencies=[Depends(verify_slack_signature)])
-async def slack_events(request: Request, background_tasks: BackgroundTasks) -> JSONResponse:
+async def slack_events(request: Request) -> JSONResponse:
     """Receive Slack Events API payloads."""
     body = await request.json()
 
@@ -164,6 +186,6 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks) -> J
 
     incident_id, question = _parse_mention(text)
 
-    background_tasks.add_task(_handle_mention, incident_id, question, channel, thread_ts)
+    _schedule_mention(incident_id, question, channel, thread_ts)
 
     return JSONResponse({"ok": True}, status_code=status.HTTP_200_OK)

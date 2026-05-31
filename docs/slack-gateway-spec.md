@@ -74,9 +74,11 @@ Users interact with Aegis AI through **app mentions** (incident troubleshooting)
 2. Extract `incident_id` (first token after bot mention)
 3. Extract `text` (remaining text)
 4. Validate structure (must have both incident ID and text)
-5. Call Query Processor: `POST /v1/incidents/{incident_id}/query` with `{"text": "why is memory high"}`
-6. On 200: post `slack_text` from response to same Slack thread
-7. On 404/4xx/5xx: post human-readable error to Slack
+5. Acknowledge Slack immediately with HTTP 200
+6. Schedule detached background work
+7. Call Query Processor: `POST /v1/incidents/{incident_id}/query` with `{"text": "why is memory high"}`
+8. On 200: post `slack_text` from response to same Slack thread
+9. On 404/4xx/5xx: post human-readable error to Slack
 
 ### 2.2 Latest incidents list (slash command)
 
@@ -660,21 +662,27 @@ resource "google_cloud_run_v2_service" "slack_gateway" {
       
       resources {
         limits = {
-          cpu    = "1"
+          cpu    = "1000m"
           memory = "512Mi"
         }
+        cpu_idle = false
       }
     }
   }
 }
 ```
 
+`cpu_idle = false` is required for the Slack Gateway because app mentions and
+slash commands acknowledge Slack first and finish the slow Query Processor /
+Slack posting work in detached in-process tasks. `min_instance_count = 0` still
+allows the service to scale to zero when idle.
+
 ### 11.2 Performance targets
 
 
 | Metric                       | Target       | Notes                                                             |
 | ---------------------------- | ------------ | ----------------------------------------------------------------- |
-| Slack Events API ack latency | < 3 seconds  | Slack requirement (not enforced in MVP since processing is async) |
+| Slack Events API ack latency | < 3 seconds  | Slack requirement; webhook path schedules detached work before slow Query Processor calls |
 | Incident query end-to-end    | < 30 seconds | Includes Query Processor AI processing                            |
 | Latest incidents end-to-end  | < 5 seconds  | Query Processor reads from BigQuery                               |
 | Alert posting latency        | < 2 seconds  | Incident Analyzer → Gateway → Slack                               |
@@ -826,10 +834,11 @@ resource "google_cloud_run_v2_service" "slack_gateway" {
      }
    }
 3. Gateway: Parse → incident_id="INC-2026-000041", text="why is memory spiking"
-4. Gateway → Query Processor: POST /v1/incidents/INC-2026-000041/query
+4. Gateway → Slack Events API: immediate HTTP 200 {"ok": true}
+5. Gateway detached task → Query Processor: POST /v1/incidents/INC-2026-000041/query
    Authorization: Bearer <oidc_token>
    {"text": "why is memory spiking"}
-5. Query Processor → Gateway: 200 OK
+6. Query Processor → Gateway detached task: 200 OK
    {
      "incident_id": "INC-2026-000041",
      "slack_text": "Memory spiking due to...\n\nActions:\n1. Check heap\n2. Review config",
@@ -838,15 +847,15 @@ resource "google_cloud_run_v2_service" "slack_gateway" {
      "metrics_fetched": true,
      "processing_ms": 8420
    }
-6. Gateway → Slack: POST https://slack.com/api/chat.postMessage
+7. Gateway detached task → Slack: POST https://slack.com/api/chat.postMessage
    Authorization: Bearer <slack_bot_token>
    {
      "channel": "C123456",
      "thread_ts": "1653410000.000000",
      "text": "Memory spiking due to...\n\nActions:\n1. Check heap\n2. Review config"
    }
-7. Slack → Gateway: {"ok": true, "ts": "..."}
-8. Gateway logs success, returns 200 to Slack Events API
+8. Slack → Gateway detached task: {"ok": true, "ts": "..."}
+9. Gateway logs success
 ```
 
 ### Flow 2: User requests latest incidents
