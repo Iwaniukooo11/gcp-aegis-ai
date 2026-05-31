@@ -86,6 +86,38 @@ class TestAppMention:
         mock_post.assert_called_once()
         assert "INC-2026-000042" in mock_post.call_args.kwargs["text"]
 
+    def test_session_not_found_is_retried_before_success(
+        self, client, sg_qp_client, sg_slack_events, sg_slack_web_api, signed_slack_json
+    ):
+        session_error = sg_qp_client.QueryProcessorError(404, "SESSION_NOT_FOUND")
+        with patch.object(sg_slack_events, "SESSION_RETRY_DELAY_S", 0), \
+             patch.object(
+                 sg_qp_client,
+                 "query_incident",
+                 side_effect=[session_error, {"slack_text": "Session is ready now."}],
+             ) as mock_qp, \
+             patch.object(sg_slack_web_api, "post_message", return_value={"ok": True}) as mock_post:
+            resp = client.post(
+                "/slack/events",
+                **signed_slack_json(_make_mention_event("<@UBOT> INC-2026-000042 what happened")),
+            )
+
+        assert resp.status_code == 200
+        assert mock_qp.call_count == 2
+        assert mock_post.call_args.kwargs["text"] == "Session is ready now."
+
+    def test_empty_question_posts_usage_hint(self, client, sg_qp_client, sg_slack_web_api, signed_slack_json):
+        with patch.object(sg_qp_client, "query_incident") as mock_qp, \
+             patch.object(sg_slack_web_api, "post_message", return_value={"ok": True}) as mock_post:
+            resp = client.post(
+                "/slack/events",
+                **signed_slack_json(_make_mention_event("<@UBOT> INC-2026-000042")),
+            )
+
+        assert resp.status_code == 200
+        mock_qp.assert_not_called()
+        assert "Please include a question" in mock_post.call_args.kwargs["text"]
+
     def test_thread_ts_forwarded_to_slack(self, client, sg_qp_client, sg_slack_web_api, signed_slack_json):
         with patch.object(sg_qp_client, "query_incident", return_value={"slack_text": "All clear."}), \
              patch.object(sg_slack_web_api, "post_message", return_value={"ok": True}) as mock_post:

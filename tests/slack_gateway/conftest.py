@@ -57,6 +57,12 @@ def sg_qp_client():
 
 
 @pytest.fixture
+def sg_slack_events():
+    """Reference to the SG Slack Events route module for patch.object calls."""
+    return _sg_modules["app.routes.slack_events"]
+
+
+@pytest.fixture
 def sg_security():
     """Reference to the SG security module for patch.object calls."""
     return _sg_modules["app.security"]

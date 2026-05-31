@@ -83,8 +83,9 @@ def create_session(
     error_type: str,
     ai_summary: str,
     initial_model_content: str,
+    log_timestamp: str = "",
 ) -> None:
-    """Create the initial Firestore session document after BigQuery succeeds.
+    """Create the initial Firestore session document for follow-up queries.
 
     Query Processor depends on this document existing before it handles
     any follow-up app mentions for this incident.
@@ -107,6 +108,7 @@ def create_session(
                 {"role": "model", "content": initial_model_content}
             ],
             "created_at": now.isoformat(),
+            "log_timestamp": log_timestamp or now.isoformat(),
             "updated_at": now.isoformat(),
             "ttl": ttl,
         }

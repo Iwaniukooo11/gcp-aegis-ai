@@ -10,6 +10,15 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 
 
+class QueryProcessorError(Exception):
+    """Query Processor returned a non-success HTTP status."""
+
+    def __init__(self, status_code: int, detail: str) -> None:
+        self.status_code = status_code
+        self.detail = detail
+        super().__init__(detail)
+
+
 def _oidc_token(audience: str) -> str:
     """Fetch a Google OIDC identity token for the given audience."""
     return id_token.fetch_id_token(Request(), audience)
@@ -22,6 +31,19 @@ def _headers(audience: str) -> dict:
     }
 
 
+def _raise_for_response(response: httpx.Response) -> None:
+    if response.is_success:
+        return
+    detail = response.text[:300]
+    try:
+        body = response.json()
+        detail_value = body.get("detail", detail)
+        detail = str(detail_value)
+    except ValueError:
+        pass
+    raise QueryProcessorError(response.status_code, detail)
+
+
 def get_latest_incidents(limit: int = 10) -> dict:
     """Call QP GET /v1/incidents/latest and return parsed JSON."""
     s = get_settings()
@@ -32,7 +54,7 @@ def get_latest_incidents(limit: int = 10) -> dict:
             params={"limit": limit},
             headers=_headers(base),
         )
-        response.raise_for_status()
+        _raise_for_response(response)
         return response.json()
 
 
@@ -46,5 +68,5 @@ def query_incident(incident_id: str, text: str) -> dict:
             json={"text": text},
             headers=_headers(base),
         )
-        response.raise_for_status()
+        _raise_for_response(response)
         return response.json()

@@ -10,7 +10,7 @@ conversation history.
 - `POST /v1/incidents/{incident_id}/query` — full 3-step Gemini pipeline:
   1. Load Firestore session, append user turn
   2. Gemini 1 — decide which Cloud Monitoring metrics to fetch
-  3. Execute Cloud Monitoring queries against the client project
+  3. Execute Cloud Monitoring queries against the client project around the incident `log_timestamp`
   4. Gemini 2 — analyze metric results, produce root-cause candidates
   5. Gemini 3 — format Slack mrkdwn response
   6. Append model turn to Firestore session
@@ -34,6 +34,21 @@ def messages_to_contents(messages: list[dict]) -> list[Content]:
 
 Steps 1 and 2 use `generate_content` with `response_mime_type="application/json"`.
 Step 3 produces a plain Slack mrkdwn string.
+
+## Cloud Monitoring metrics
+
+The allowlist is intentionally narrow and GKE-specific:
+
+- `cpu_utilization`
+- `cpu_request_utilization`
+- `cpu_core_usage`
+- `memory_utilization`
+- `memory_limit_utilization`
+- `pod_restart_count`
+
+For CPU, memory, and restart questions, deterministic metric facts are added
+to the Slack response before Gemini explanation text. This prevents Gemini from
+inventing metric values.
 
 ## Local dev
 

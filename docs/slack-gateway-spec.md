@@ -283,7 +283,7 @@ X-Request-Id: <uuid>
 | HTTP | `error_code`                                      | Meaning                            | Gateway action                                                  |
 | ---- | ------------------------------------------------- | ---------------------------------- | --------------------------------------------------------------- |
 | 400  | `INVALID_REQUEST`                                 | Malformed request                  | Post "Invalid request format" to Slack                          |
-| 404  | `SESSION_NOT_FOUND`                               | Incident/session doesn't exist     | Post "Incident {id} not found. Check the incident ID." to Slack |
+| 404  | `SESSION_NOT_FOUND`                               | Incident/session does not exist yet or ID is wrong | Retry briefly, then post a session-context error to Slack |
 | 403  | `PROJECT_NOT_ALLOWED`                             | Client project not allowed         | Post "Access denied to project" to Slack                        |
 | 502  | `GEMINI_INVALID_PLAN` / `GEMINI_INVALID_RESPONSE` | AI processing failed               | Post "AI analysis failed, try again" to Slack                   |
 | 503  | `DEPENDENCY_UNAVAILABLE`                          | Firestore/Monitoring/BigQuery down | Post "Service temporarily unavailable" to Slack                 |
@@ -450,7 +450,7 @@ App mentions must **not** trigger latest incidents; use slash command **`/aegis-
 
 | Query Processor error                                 | Slack user message                                                                                                                                 |
 | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 404 `SESSION_NOT_FOUND`                               | "❌ Incident `{incident_id}` not found. Please check the incident ID."                                                                              |
+| 404 `SESSION_NOT_FOUND`                               | Retry briefly; if still missing: "I do not have session context for `{incident_id}` yet. Check the incident ID or wait a few seconds after the alert." |
 | 400 `INVALID_REQUEST`                                 | "❌ Invalid request format. Usage: `@aegis-bot INC-XXXX-XXXXXX your question`"                                                                      |
 | 403 `PROJECT_NOT_ALLOWED`                             | "❌ Access denied to the specified project."                                                                                                        |
 | 502 `GEMINI_INVALID_PLAN` / `GEMINI_INVALID_RESPONSE` | "❌ AI analysis failed. Please try again."                                                                                                          |

@@ -202,6 +202,7 @@ def _build_fallback_text(incident_id: str, client_project_id: str, service_name:
 @router.post("/pubsub/push", status_code=status.HTTP_200_OK)
 async def receive_pubsub(envelope: PubSubEnvelope, request: Request) -> dict:
     """Receive an authenticated Pub/Sub push message and process it as an incident."""
+    hub_received_at = datetime.now(tz=timezone.utc).isoformat()
     try:
         raw_bytes = base64.b64decode(envelope.message.data)
         log_entry = json.loads(raw_bytes.decode("utf-8"))
@@ -247,6 +248,7 @@ async def receive_pubsub(envelope: PubSubEnvelope, request: Request) -> dict:
                 "source_log_insert_id": fields["insert_id"],
                 "source_timestamp": fields["timestamp"],
                 "pod_name": fields["pod_name"],
+                "hub_received_at": hub_received_at,
             },
         )
         if not created:
@@ -299,6 +301,7 @@ async def receive_pubsub(envelope: PubSubEnvelope, request: Request) -> dict:
                 error_type=normalized.get("error_type", ""),
                 ai_summary=ai_summary,
                 initial_model_content=initial_content,
+                log_timestamp=fields.get("timestamp", ""),
             )
             firestore_sessions.update_receipt(idem_key, {"session_created": True})
             receipt["session_created"] = True
@@ -370,6 +373,8 @@ async def receive_pubsub(envelope: PubSubEnvelope, request: Request) -> dict:
                     slack_channel=slack_channel,
                     slack_message_ts=slack_message_ts,
                     first_alert_sent_at=first_alert_sent_at,
+                    hub_received_at=receipt.get("hub_received_at") or hub_received_at,
+                    log_timestamp=fields.get("timestamp", ""),
                 )
                 bigquery_incidents.insert_incident(row, insert_id=idem_key)
                 firestore_sessions.update_receipt(idem_key, {"bigquery_persisted": True})
