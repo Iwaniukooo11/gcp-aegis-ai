@@ -19,7 +19,10 @@ def _get_client() -> bigquery.Client:
 def get_latest_incidents(limit: int = 10) -> list[dict]:
     """Return the most recent successfully processed incidents from BigQuery.
 
-    Only rows with terminal_status = 'SUCCESS' are returned.
+    Only completed application incidents are returned. Historical demo data may
+    contain pre-filter false positives from GKE system pods, so the query keeps
+    rows with real error types from the labeled Aegis demo workloads and known
+    legacy demo workload service names.
     Caller is responsible for formatting times as minutes_ago.
     """
     s = get_settings()
@@ -35,7 +38,19 @@ def get_latest_incidents(limit: int = 10) -> list[dict]:
             ai_summary,
             created_at
         FROM {table}
-        WHERE terminal_status = 'SUCCESS'
+        WHERE
+            terminal_status = 'SUCCESS'
+            AND severity IN ('ERROR', 'CRITICAL', 'ALERT', 'EMERGENCY')
+            AND error_type IS NOT NULL
+            AND TRIM(error_type) != ''
+            AND (
+                JSON_VALUE(labels_json, '$."k8s-pod/app_kubernetes_io/part-of"') = 'aegis-ai'
+                OR service_name IN ('java-api', 'python-api', 'python-worker')
+            )
+        QUALIFY ROW_NUMBER() OVER (
+            PARTITION BY incident_id
+            ORDER BY created_at DESC
+        ) = 1
         ORDER BY created_at DESC
         LIMIT @limit
     """

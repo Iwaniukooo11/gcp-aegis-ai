@@ -134,7 +134,15 @@ Check recent successful incidents:
 bq query --project_id=aegis-hub-2137 --use_legacy_sql=false '
 SELECT incident_id, service_name, error_type, severity, created_at
 FROM `aegis-hub-2137.aegis_incidents.incidents`
-WHERE terminal_status = "SUCCESS"
+WHERE
+  terminal_status = "SUCCESS"
+  AND severity IN ("ERROR", "CRITICAL", "ALERT", "EMERGENCY")
+  AND error_type IS NOT NULL
+  AND TRIM(error_type) != ""
+  AND (
+    JSON_VALUE(labels_json, '$."k8s-pod/app_kubernetes_io/part-of"') = "aegis-ai"
+    OR service_name IN ("java-api", "python-api", "python-worker")
+  )
 ORDER BY created_at DESC
 LIMIT 5'
 ```
