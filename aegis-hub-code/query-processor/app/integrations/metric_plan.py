@@ -123,14 +123,35 @@ def _point_nearest_anchor(points: list[dict], anchor: datetime | None) -> dict |
     return points[-1]
 
 
-def _average_cores_from_cumulative(points: list[dict]) -> float | None:
-    if len(points) < 2:
+def _points_with_time_and_value(points: list[dict]) -> list[tuple[datetime, float]]:
+    parsed = []
+    for point in points:
+        ts = _parse_point_time(point)
+        value = _point_value(point)
+        if ts is not None and value is not None:
+            parsed.append((ts, value))
+    return sorted(parsed, key=lambda item: item[0])
+
+
+def _nearest_nonzero_point(points: list[dict], anchor: datetime | None) -> dict | None:
+    nonzero = [point for point in points if (_point_value(point) or 0.0) > 0.0]
+    return _point_nearest_anchor(nonzero, anchor)
+
+
+def _average_cores_from_cumulative(points: list[dict], anchor: datetime | None) -> float | None:
+    parsed = _points_with_time_and_value(points)
+    if len(parsed) < 2:
         return None
-    p1, p2 = points[-2], points[-1]
-    v1, v2 = _point_value(p1), _point_value(p2)
-    t1, t2 = _parse_point_time(p1), _parse_point_time(p2)
-    if v1 is None or v2 is None or t1 is None or t2 is None:
-        return None
+
+    p2_index = len(parsed) - 1
+    if anchor is not None:
+        for index, (ts, _) in enumerate(parsed):
+            if ts >= anchor:
+                p2_index = max(index, 1)
+                break
+
+    t1, v1 = parsed[p2_index - 1]
+    t2, v2 = parsed[p2_index]
     dt = (t2 - t1).total_seconds()
     if dt <= 0:
         return None
@@ -185,7 +206,7 @@ def _summarize_series(
         }
 
     if value_kind == "cumulative_cpu" or gcp_metric == _LEGACY_CUMULATIVE_CPU:
-        cores = _average_cores_from_cumulative(all_points)
+        cores = _average_cores_from_cumulative(all_points, anchor_time)
         if cores is not None:
             return {
                 "status": "ok",
@@ -195,8 +216,19 @@ def _summarize_series(
                 "unit": "cores",
                 "display": f"~{round(cores, 3)} cores (avg over last sample interval)",
             }
+        return {
+            "status": "no_rate",
+            "type": type_id,
+            "gcp_metric_type": gcp_metric,
+            "series_count": len(series_list),
+        }
 
     if value_kind == "bytes" and incident_value is not None:
+        if incident_value == 0:
+            nonzero_point = _nearest_nonzero_point(all_points, anchor_time)
+            nonzero_value = _point_value(nonzero_point) if nonzero_point else None
+            if nonzero_value is not None:
+                incident_value = nonzero_value
         mib = incident_value / (1024 * 1024)
         return {
             "status": "ok",
@@ -273,9 +305,9 @@ def format_metric_facts_line(question: str, summary: dict) -> str | None:
             {},
         )
         if cpu.get("display"):
-            lines.append(f"CPU at incident time: *{cpu['display']}*")
+            lines.append(f"CPU near incident time: *{cpu['display']}*")
         else:
-            lines.append("CPU at incident time: no Monitoring data in lookback window.")
+            lines.append("CPU near incident time: no Cloud Monitoring data in lookback window.")
 
     if "mem" in q or "memory" in q:
         mem = next(
@@ -288,9 +320,9 @@ def format_metric_facts_line(question: str, summary: dict) -> str | None:
             {},
         )
         if mem.get("display"):
-            lines.append(f"Memory at incident time: *{mem['display']}*")
+            lines.append(f"Memory near incident time: *{mem['display']}*")
         else:
-            lines.append("Memory at incident time: no Monitoring data in lookback window.")
+            lines.append("Memory near incident time: no Cloud Monitoring data in lookback window.")
 
     if "restart" in q:
         restarts = summary.get("pod_restart_count", {})
