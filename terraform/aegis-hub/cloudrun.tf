@@ -24,10 +24,6 @@ resource "google_cloud_run_v2_service" "slack_gateway" {
         value = var.slack_alert_channel_id
       }
       env {
-        name  = "SLACK_GATEWAY_URL"
-        value = google_cloud_run_v2_service.slack_gateway.uri
-      }
-      env {
         name  = "INTERNAL_ALERT_ALLOWED_SERVICE_ACCOUNT"
         value = google_service_account.incident_analyzer.email
       }

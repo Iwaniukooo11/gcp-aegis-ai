@@ -42,7 +42,9 @@ Events API verification.
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `SLACK_BOT_TOKEN` | yes | From Secret Manager `slack-bot-token` |
+| `SLACK_SIGNING_SECRET` | yes | From Secret Manager `slack-signing-secret` |
 | `QUERY_PROCESSOR_URL` | yes | Internal Cloud Run URL for Query Processor |
 | `DEFAULT_SLACK_CHANNEL_ID` | yes | Slack channel ID for incident alerts |
+| `INTERNAL_ALERT_ALLOWED_SERVICE_ACCOUNT` | yes | Incident Analyzer service account allowed to call alert relay |
 | `INCIDENT_ANALYZER_URL` | no | Used for potential future direct calls |
 | `ENVIRONMENT` | no | Default: dev |
