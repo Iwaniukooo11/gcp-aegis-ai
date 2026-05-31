@@ -297,6 +297,7 @@ async def receive_pubsub(envelope: PubSubEnvelope, request: Request) -> dict:
                 service_name=service_name,
                 cluster_name=fields["cluster_name"],
                 namespace=fields["namespace"],
+                pod_name=fields["pod_name"],
                 severity=fields["severity"],
                 error_type=normalized.get("error_type", ""),
                 ai_summary=ai_summary,

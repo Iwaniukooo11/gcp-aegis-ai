@@ -22,6 +22,7 @@ def test_supplement_plan_adds_cpu_and_memory_metrics_from_question(sample_sessio
         "memory_utilization",
         "memory_limit_utilization",
     }.issubset(types)
+    assert all('resource.labels.pod_name="java-api-abc123"' in metric["filter"] for metric in body["metrics"])
 
 
 def test_parse_session_anchor_prefers_log_timestamp(sample_session):

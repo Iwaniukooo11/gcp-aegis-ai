@@ -27,10 +27,10 @@ response = model.generate_content([system_prompt, user_prompt], generation_confi
 ## Firestore session seed
 
 Before Slack handoff and final BigQuery insert, a `sessions/{incident_id}`
-document is created with initial `messages: [{"role": "model", "content": "..."}]`
-and `log_timestamp` from the source Cloud Logging entry. This is the conversation
-history seed that Query Processor appends user turns to later and the timestamp
-anchor for Cloud Monitoring queries.
+document is created with initial `messages: [{"role": "model", "content": "..."}]`,
+`pod_name`, and `log_timestamp` from the source Cloud Logging entry. This is the
+conversation history seed that Query Processor appends user turns to later and
+the pod/time anchor for Cloud Monitoring queries.
 
 ## Incident ID format
 

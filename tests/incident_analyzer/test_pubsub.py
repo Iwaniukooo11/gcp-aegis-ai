@@ -98,6 +98,8 @@ class TestPubSubPush:
         assert row["slack_channel"] == "C_TEST_ALERTS"
         assert row["slack_message_ts"] == "1.1"
         assert row["terminal_status"] == "SUCCESS"
+        assert mock_create_session.call_args.kwargs["pod_name"] == "java-api-abc123"
+        assert mock_create_session.call_args.kwargs["log_timestamp"] == "2026-05-21T00:00:00Z"
         assert mock_insert_incident.call_args.kwargs["insert_id"]
         updates = [call.args[1] for call in mock_update_receipt.call_args_list]
         assert any(update.get("analysis_completed") is True for update in updates)

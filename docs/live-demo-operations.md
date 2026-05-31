@@ -188,7 +188,7 @@ curl -sS -H "Authorization: Bearer ${ACCESS_TOKEN}" \
   "https://firestore.googleapis.com/v1/projects/aegis-hub-2137/databases/(default)/documents/sessions/${INCIDENT_ID}"
 ```
 
-The session must include `client_project_id`, `service_name`, `cluster_name`, `namespace`, `error_type`, `messages`, and `log_timestamp`.
+The session must include `client_project_id`, `service_name`, `cluster_name`, `namespace`, `pod_name`, `error_type`, `messages`, and `log_timestamp`.
 
 Verify Cloud Monitoring has real client metrics around the incident:
 
