@@ -18,7 +18,7 @@ _IA_ENV = {
     "BIGQUERY_INCIDENTS_TABLE": "incidents",
     "FIRESTORE_DATABASE": "(default)",
     "SLACK_GATEWAY_URL": "http://sg-test:8080",
-    "SLACK_ALERT_CHANNEL_ID": "",
+    "SLACK_ALERT_CHANNEL_ID": "C_TEST_ALERTS",
     "VERTEX_MODEL": "gemini-1.5-flash",
     "SESSION_TTL_HOURS": "24",
     "RECEIPT_TTL_HOURS": "24",

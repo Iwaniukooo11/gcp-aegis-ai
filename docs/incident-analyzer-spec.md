@@ -10,7 +10,7 @@ This document defines the target behavior of the `incident-analyzer` Cloud Run s
 
 The **Incident Analyzer** is a private Cloud Run service in the **Aegis Hub** project.
 
-It receives exported error logs from Pub/Sub, normalizes them into the internal incident schema, performs Gemini-based analysis, persists the incident in BigQuery, seeds Firestore session state, and sends a Slack alert payload to `slack-gateway`.
+It receives exported error logs from Pub/Sub, normalizes them into the internal incident schema, performs Gemini-based analysis, seeds Firestore session state, sends a Slack alert payload to `slack-gateway`, and persists the final incident row in BigQuery with Slack handoff evidence when available.
 
 It is the **first write owner** for:
 
@@ -164,7 +164,8 @@ Return non-`2xx` when the event should be retried.
 
 Most importantly:
 
-- if BigQuery write succeeds but Slack Gateway handoff fails, return failure so Pub/Sub retries
+- if Slack Gateway handoff succeeds but BigQuery write fails, return failure so Pub/Sub retries
+- retries must not create a second Slack alert
 - retries must not create a second BigQuery incident row
 - retries must not create a second Firestore session or second conversation seed
 
@@ -184,33 +185,34 @@ Analyzer should produce enough structured logs to diagnose why the event became 
 2. Parse wrapper and base64-decode the log entry.
 3. Extract normalization inputs from the raw log.
 4. Build idempotency key and check the dedupe receipt store.
-5. If duplicate redelivery, skip BigQuery and session creation, return success.
+5. If the receipt shows all downstream milestones completed, skip all downstream work and return success.
 6. Generate a new human-readable `incident_id`.
 7. Run Gemini step 1 to sanitize and normalize the log into internal incident schema fields.
 8. Run Gemini step 2 to classify, explain, and recommend.
 9. Run Gemini step 3 to generate Slack-ready alert text.
-10. Write the incident row to BigQuery.
-11. Create Firestore `sessions/{incident_id}` immediately after BigQuery success.
-12. Create or finalize Firestore dedupe receipt.
-13. Send alert payload to Slack Gateway.
+10. Create Firestore `sessions/{incident_id}`.
+11. Send alert payload to Slack Gateway.
+12. Write the final incident row to BigQuery with Slack channel/timestamp evidence when Gateway returned it.
+13. Mark each completed milestone on the Firestore receipt.
 14. Mark final terminal status and finish.
 
 ### 5.2 Rule ordering
 
 The ordering matters.
 
-The intended order is:
+The implemented order is:
 
-- dedupe check before BigQuery
-- BigQuery before Firestore session creation
+- receipt claim or resume before any downstream side effect
 - Firestore session creation before Slack handoff
-- Slack handoff before final success acknowledgment
+- Slack handoff before final BigQuery persistence
+- BigQuery persistence before final success acknowledgment
 
 This preserves your chosen rule:
 
 - a retry should reuse the same `incident_id`
 - no duplicate BigQuery row
 - no duplicate session creation
+- no duplicate Slack alert after Slack Gateway already accepted the alert
 
 ---
 
@@ -267,13 +269,15 @@ This must be separate from `sessions` because delivery state and conversation st
 
 ### 6.5 Duplicate redelivery handling
 
-If a receipt already exists for the same `idempotency_key` and the real incident was already created:
+If a receipt already exists for the same `idempotency_key` and all downstream milestones completed:
 
 - do not create a new `incident_id`
 - do not insert a new BigQuery row
 - do not create a new Firestore session
 - do not send a second Slack alert
 - return success to Pub/Sub
+
+If a receipt exists but some downstream milestone is still false, Analyzer must treat the message as a retry and resume from the first missing step.
 
 BigQuery remains **one row per real incident occurrence**, not one row per retry.
 
@@ -368,7 +372,7 @@ BigQuery is **one row per real incident occurrence**.
 
 It is not one row per Pub/Sub delivery attempt.
 
-Duplicate redeliveries must be skipped after dedupe check.
+Duplicate redeliveries must be skipped after the receipt confirms that BigQuery, Firestore session creation, and Slack handoff all completed.
 
 ### 8.3 Existing table schema
 
@@ -440,6 +444,8 @@ If BigQuery row was already written for the real incident and a retry comes late
 
 The dedupe receipt store is the operational source of truth for retry suppression.
 
+Analyzer also performs a defensive BigQuery lookup by `idempotency_key` before inserting. This protects the demo path if a previous delivery wrote the row but failed before updating the Firestore receipt.
+
 ---
 
 ## 9. Firestore contracts
@@ -456,7 +462,7 @@ Slack thread identifiers are not the primary key.
 
 ### 9.2 Session creation timing
 
-After BigQuery succeeds, Analyzer must create the Firestore session immediately, even if Slack delivery has not yet succeeded.
+Analyzer creates the Firestore session before Slack delivery and before the final BigQuery insert.
 
 This ensures that retries reuse the same `incident_id` and do not create a second conversation seed.
 
@@ -500,9 +506,13 @@ Recommended document shape:
   "source_log_insert_id": "abc123",
   "source_timestamp": "2026-04-26T16:56:00Z",
   "pod_name": "java-api-7f9c",
+  "analysis_completed": true,
   "bigquery_persisted": true,
   "session_created": true,
-  "slack_handoff_succeeded": false,
+  "slack_handoff_succeeded": true,
+  "slack_channel": "C0123456789",
+  "slack_message_ts": "1710000000.000100",
+  "first_alert_sent_at": "2026-04-26T16:56:08Z",
   "created_at": "2026-04-26T16:56:05Z",
   "updated_at": "2026-04-26T16:56:20Z",
   "ttl": "2026-04-27T16:56:05Z"
@@ -603,10 +613,11 @@ This is still acceptable to acknowledge to Pub/Sub.
 
 ### 11.3 Retry-required failure rule
 
-If BigQuery succeeded but Slack fallback delivery also failed, Analyzer should return failure so the message is retried.
+If Slack Gateway accepted the alert but BigQuery persistence failed, Analyzer should return failure so the message is retried.
 
 On retry:
 
+- no second Slack alert
 - no second BigQuery row
 - no second Firestore session
 - no second initial conversation seed
@@ -614,13 +625,14 @@ On retry:
 
 ### 11.4 Example retry matrix
 
-| BigQuery | Firestore session | Slack handoff | Result | Pub/Sub ack |
-|----------|-------------------|---------------|--------|-------------|
-| Fail | No | No | `FAILED` | No |
-| Success | Yes | Fail | retry path | No |
-| Success | Yes | Success with fallback | `PARTIAL_SUCCESS` | Yes |
-| Success | Yes | Success with full message | `SUCCESS` | Yes |
-| Already deduped | Already exists | Already handled | duplicate redelivery | Yes |
+| Firestore session | Slack handoff | BigQuery | Result | Pub/Sub ack |
+|-------------------|---------------|----------|--------|-------------|
+| Fail | No | No | retry path | No |
+| Success | Fail | No | retry path | No |
+| Success | Success | Fail | retry path | No |
+| Success | Success with fallback | Success | `PARTIAL_SUCCESS` | Yes |
+| Success | Success with full message | Success | `SUCCESS` | Yes |
+| Already handled | Already handled | Already handled | duplicate redelivery | Yes |
 
 ---
 

@@ -25,16 +25,33 @@ def _table_ref() -> str:
     return f"{s.gcp_project}.{s.bigquery_dataset}.{s.bigquery_incidents_table}"
 
 
-def insert_incident(row: dict) -> None:
+def insert_incident(row: dict, insert_id: str | None = None) -> None:
     """Insert a single incident row into BigQuery.
 
     Expects a dict whose keys match the aegis_incidents.incidents schema.
     Raises on insert errors.
     """
     client = _get_client()
-    errors = client.insert_rows_json(_table_ref(), [row])
+    kwargs = {"row_ids": [insert_id]} if insert_id else {}
+    errors = client.insert_rows_json(_table_ref(), [row], **kwargs)
     if errors:
         raise RuntimeError(f"BigQuery insert errors: {errors}")
+
+
+def incident_exists_by_idempotency_key(idempotency_key: str) -> bool:
+    """Return whether BigQuery already has an incident row for this idempotency key."""
+    client = _get_client()
+    query = (
+        f"SELECT 1 FROM `{_table_ref()}` "
+        "WHERE idempotency_key = @idempotency_key "
+        "LIMIT 1"
+    )
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("idempotency_key", "STRING", idempotency_key)
+        ]
+    )
+    return next(iter(client.query(query, job_config=job_config)), None) is not None
 
 
 def build_incident_row(
@@ -57,6 +74,9 @@ def build_incident_row(
     ai_recommendation: str,
     terminal_status: str,
     terminal_failure_reason: str = "",
+    slack_channel: str | None = None,
+    slack_message_ts: str | None = None,
+    first_alert_sent_at: str | None = None,
 ) -> dict:
     """Build a BigQuery row dict with all required and optional incident fields."""
     now = datetime.now(tz=timezone.utc).isoformat()
@@ -78,12 +98,12 @@ def build_incident_row(
         "labels_json": labels_json,
         "ai_summary": ai_summary,
         "ai_recommendation": ai_recommendation,
-        "slack_channel": None,
-        "slack_message_ts": None,
+        "slack_channel": slack_channel,
+        "slack_message_ts": slack_message_ts,
         "created_at": now,
         "hub_received_at": now,
         "incident_persisted_at": now,
-        "first_alert_sent_at": None,
+        "first_alert_sent_at": first_alert_sent_at,
         "ai_summary_completed_at": now if ai_summary else None,
         "processing_completed_at": now,
         "terminal_status": terminal_status,
