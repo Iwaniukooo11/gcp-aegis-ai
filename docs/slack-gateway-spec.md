@@ -498,7 +498,6 @@ slack_client.chat_postMessage(
 | `SLACK_BOT_TOKEN`          | Secret Manager   | OAuth token for Slack Web API (`chat.postMessage`)           | Yes      |
 | `SLACK_SIGNING_SECRET`     | Secret Manager   | Verify Slack request signatures                              | Yes      |
 | `QUERY_PROCESSOR_URL`      | Terraform output | Cloud Run URL for Query Processor                            | Yes      |
-| `SLACK_GATEWAY_URL`        | Terraform output | Expected audience for Incident Analyzer Google ID tokens      | Yes      |
 | `INTERNAL_ALERT_ALLOWED_SERVICE_ACCOUNT` | Terraform service account | Exact service account allowed to call alert relay | Yes |
 | `ENVIRONMENT`              | `dev` / `prod`   | Logging labels                                               | Yes      |
 | `DEFAULT_SLACK_CHANNEL_ID` | Manual config    | Alert channel for Incident Analyzer posts (Analyzer never sends `channel_id`) | Yes      |
@@ -530,7 +529,7 @@ slack_client.chat_postMessage(
 
 **IAM:** Incident Analyzer service account (`aegis-incident-analyzer-sa`) must have `roles/run.invoker` on Slack Gateway
 
-**Verification:** FastAPI dependency validates token audience matches Gateway URL and `email` matches `INTERNAL_ALERT_ALLOWED_SERVICE_ACCOUNT`
+**Verification:** FastAPI dependency validates the token audience against the request base URL and `email` matches `INTERNAL_ALERT_ALLOWED_SERVICE_ACCOUNT`
 
 ### 7.3 Outbound to Query Processor
 

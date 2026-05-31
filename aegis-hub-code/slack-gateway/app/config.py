@@ -15,7 +15,6 @@ class Settings(BaseSettings):
     slack_signing_secret: str
     query_processor_url: str
     default_slack_channel_id: str
-    slack_gateway_url: str
     internal_alert_allowed_service_account: str
     incident_analyzer_url: str = ""
     environment: str = "dev"
@@ -25,7 +24,6 @@ class Settings(BaseSettings):
         "slack_signing_secret",
         "query_processor_url",
         "default_slack_channel_id",
-        "slack_gateway_url",
         "internal_alert_allowed_service_account",
     )
     @classmethod

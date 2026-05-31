@@ -26,7 +26,6 @@ _SG_ENV = {
     "SLACK_SIGNING_SECRET": "test-signing-secret",
     "QUERY_PROCESSOR_URL": "http://qp-test:8080",
     "DEFAULT_SLACK_CHANNEL_ID": "C_TEST_CHANNEL",
-    "SLACK_GATEWAY_URL": "http://slack-gateway-test:8080",
     "INTERNAL_ALERT_ALLOWED_SERVICE_ACCOUNT": "aegis-incident-analyzer-sa@aegis-hub-2137.iam.gserviceaccount.com",
     "ENVIRONMENT": "dev",
 }

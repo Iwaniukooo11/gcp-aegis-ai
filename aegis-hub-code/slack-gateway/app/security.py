@@ -43,6 +43,7 @@ async def verify_slack_signature(
 
 
 def verify_internal_alert_token(
+    request: Request,
     authorization: str | None = Header(default=None),
 ) -> None:
     """Verify Google ID token for Incident Analyzer alert handoff."""
@@ -51,8 +52,9 @@ def verify_internal_alert_token(
 
     s = get_settings()
     token = authorization.removeprefix("Bearer ").strip()
+    audience = str(request.base_url).rstrip("/")
     try:
-        claims = id_token.verify_oauth2_token(token, GoogleAuthRequest(), audience=s.slack_gateway_url)
+        claims = id_token.verify_oauth2_token(token, GoogleAuthRequest(), audience=audience)
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid_bearer_token") from exc
 
