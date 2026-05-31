@@ -28,11 +28,15 @@ class TestReceiveAlert:
             sg_security.id_token,
             "verify_oauth2_token",
             return_value={"email": "aegis-incident-analyzer-sa@aegis-hub-2137.iam.gserviceaccount.com"},
-        ), patch.object(sg_slack_web_api, "post_message", return_value={"ok": True, "ts": "1.1"}) as mock_post:
+        ) as mock_verify, patch.object(sg_slack_web_api, "post_message", return_value={"ok": True, "ts": "1.1"}) as mock_post:
             resp = client.post(
                 "/v1/internal/incidents/alert",
                 json=payload,
-                headers={"Authorization": "Bearer valid-token"},
+                headers={
+                    "Authorization": "Bearer valid-token",
+                    "Host": "aegis-slack-gateway.example.run.app",
+                    "X-Forwarded-Proto": "https",
+                },
             )
 
         assert resp.status_code == 200
@@ -40,6 +44,7 @@ class TestReceiveAlert:
         assert body["ok"] is True
         assert body["incident_id"] == "INC-2026-000042"
         mock_post.assert_called_once()
+        assert mock_verify.call_args.kwargs["audience"] == "https://aegis-slack-gateway.example.run.app"
         assert mock_post.call_args.kwargs["text"] == "*🚨 INC-2026-000042* — java-api OOM"
         assert mock_post.call_args.kwargs["channel"] == "C_TEST_CHANNEL"
 
