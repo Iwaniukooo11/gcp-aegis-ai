@@ -223,6 +223,51 @@ class JavaApiApplicationTests {
 	}
 
 	@Test
+	void adminPricingUnavailableAliasUsesBusinessFailureName(CapturedOutput output) throws Exception {
+		mockMvc.perform(post("/admin/failures/pricing-unavailable").param("seconds", "1"))
+				.andExpect(status().isAccepted())
+				.andExpect(jsonPath("$.status").value("accepted"))
+				.andExpect(jsonPath("$.scenario").value("JAVA_PRICING_5XX"));
+
+		mockMvc.perform(get("/api/pricing").header(CorrelationIdFilter.CORRELATION_HEADER, "pricing-admin-001"))
+				.andExpect(status().isServiceUnavailable())
+				.andExpect(jsonPath("$.error.code").value("JAVA_PRICING_UNAVAILABLE"))
+				.andExpect(jsonPath("$.error.message").value("java-api pricing returned HTTP 503 for pricing requests"))
+				.andExpect(jsonPath("$.error.scenario").value("JAVA_PRICING_5XX"))
+				.andExpect(jsonPath("$.error.correlation_id").value("pricing-admin-001"));
+
+		JsonNode payload = latestRequestLog(output);
+		assertThat(payload.path("severity").asText()).isEqualTo("ERROR");
+		assertThat(payload.path("incident_candidate").asBoolean()).isTrue();
+		assertThat(payload.path("message").asText()).isEqualTo("PricingUnavailableException on GET /api/pricing");
+		assertThat(payload.path("stack_trace_preview").asText()).contains("PricingUnavailableException");
+
+		Thread.sleep(1100);
+		mockMvc.perform(get("/api/pricing"))
+				.andExpect(status().isOk());
+	}
+
+	@Test
+	void adminPricingLatencyAliasDelaysPricingWithoutFailingHealth() throws Exception {
+		mockMvc.perform(post("/admin/failures/pricing-latency").param("seconds", "1"))
+				.andExpect(status().isAccepted())
+				.andExpect(jsonPath("$.scenario").value("JAVA_PRICING_LATENCY"));
+
+		long pricingStartedAt = System.nanoTime();
+		mockMvc.perform(get("/api/pricing"))
+				.andExpect(status().isOk());
+		double pricingDurationMs = (System.nanoTime() - pricingStartedAt) / 1_000_000.0;
+
+		long healthStartedAt = System.nanoTime();
+		mockMvc.perform(get("/healthz/ready"))
+				.andExpect(status().isOk());
+		double healthDurationMs = (System.nanoTime() - healthStartedAt) / 1_000_000.0;
+
+		assertThat(pricingDurationMs).isGreaterThanOrEqualTo(900.0);
+		assertThat(healthDurationMs).isLessThan(500.0);
+	}
+
+	@Test
 	void slowModeDelaysWorkloadButNotHealth() throws Exception {
 		mockMvc.perform(post("/chaos/slow").param("seconds", "1"))
 				.andExpect(status().isAccepted())
@@ -244,7 +289,7 @@ class JavaApiApplicationTests {
 
 	private JsonNode latestRequestLog(CapturedOutput output) throws Exception {
 		String logLine = output.getOut().lines()
-				.filter(line -> line.contains("\"message\":\"Request completed\""))
+				.filter(line -> line.startsWith("{") && line.contains("\"service_name\":\"java-api\""))
 				.reduce((first, second) -> second)
 				.orElseThrow();
 		return objectMapper.readTree(logLine);

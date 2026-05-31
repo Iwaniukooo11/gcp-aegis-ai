@@ -34,7 +34,9 @@ public class WorkloadController {
 		if (chaosState.isPricingFailureActive()) {
 			request.setAttribute(ObservabilityAttributes.SCENARIO, "JAVA_PRICING_5XX");
 			request.setAttribute(ObservabilityAttributes.ERROR_TYPE, PricingUnavailableException.class.getSimpleName());
-			request.setAttribute(ObservabilityAttributes.STACK_TRACE_PREVIEW, "pricing 5xx mode is active");
+			request.setAttribute(
+					ObservabilityAttributes.STACK_TRACE_PREVIEW,
+					"java-api pricing returned HTTP 503 for pricing requests");
 			throw new PricingUnavailableException();
 		}
 		return new PricingResponse(

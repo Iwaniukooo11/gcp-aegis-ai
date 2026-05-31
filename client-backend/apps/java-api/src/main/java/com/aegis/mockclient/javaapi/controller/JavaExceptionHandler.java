@@ -52,7 +52,7 @@ public class JavaExceptionHandler {
 		return error(
 				HttpStatus.SERVICE_UNAVAILABLE,
 				"JAVA_PRICING_UNAVAILABLE",
-				"java-api pricing is temporarily unavailable",
+				"java-api pricing returned HTTP 503 for pricing requests",
 				"JAVA_PRICING_5XX",
 				ex,
 				request);

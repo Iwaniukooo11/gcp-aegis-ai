@@ -42,16 +42,16 @@ class JavaApiClient:
                     headers={CORRELATION_HEADER: correlation_id},
                 )
             except httpx.TimeoutException as exc:
-                raise DownstreamTimeoutError("java-api request exceeded configured timeout") from exc
+                raise DownstreamTimeoutError("java-api pricing request exceeded configured timeout") from exc
             except httpx.HTTPError as exc:
-                raise DownstreamBadResponseError("java-api request failed") from exc
+                raise DownstreamBadResponseError("java-api pricing request failed before response") from exc
 
         if response.status_code >= 500:
-            raise DownstreamBadResponseError(f"java-api returned {response.status_code}")
+            raise DownstreamBadResponseError(f"java-api pricing returned HTTP {response.status_code}")
         if response.status_code != 200:
-            raise DownstreamBadResponseError(f"java-api returned unexpected status {response.status_code}")
+            raise DownstreamBadResponseError(f"java-api pricing returned unexpected HTTP {response.status_code}")
 
         try:
             return JavaPricingResponse.model_validate(response.json())
         except (ValueError, ValidationError) as exc:
-            raise DownstreamBadResponseError("java-api returned malformed pricing response") from exc
+            raise DownstreamBadResponseError("java-api pricing returned malformed response") from exc
