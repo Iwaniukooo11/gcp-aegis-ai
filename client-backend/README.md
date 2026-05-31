@@ -9,19 +9,13 @@ Google Cloud:
 - `java-api`: Spring Boot service, later exposed on port `8080`.
 
 The final client infrastructure target is the separate GCP project
-`aegis-client-420`, but this milestone must run with local tooling only. Do not
-require Terraform, GKE, Artifact Registry, Cloud Logging, or Pub/Sub for local
-service development.
+`aegis-client-420`. Local development still works with Docker Compose, and the
+GKE deployment path now lives in `client-backend/k8s`.
 
 ## Current Status
 
-The Python and Java services run together with Docker Compose. Java workload
-failures and Python checkout dependency failures are implemented. Remaining
-work focuses on broader controlled chaos scenarios and repeatable scenario
-scripts:
-
-1. Controlled chaos scenarios.
-2. Local scenario scripts and expanded test coverage.
+The Python and Java services run together with Docker Compose and deploy to the
+client GKE cluster with repeatable Kubernetes manifests.
 
 ## Python Service
 
@@ -108,6 +102,23 @@ docker compose down
 
 `test-local.sh` runs the Python and Java test suites without starting
 containers.
+
+## GKE Workflow
+
+Deploy both services to the client GKE cluster:
+
+```bash
+cd ..
+./client-backend/scripts/deploy-gke.sh
+```
+
+Run smoke checks:
+
+```bash
+./client-backend/scripts/smoke-gke.sh
+```
+
+See [Client Workload Deployment](../docs/client-workload-deployment.md) for the full build, deploy, incident trigger, and teardown procedure.
 
 ## Local Contract
 

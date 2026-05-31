@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aegis-client-config
+  labels:
+    app.kubernetes.io/name: aegis-client
+    app.kubernetes.io/part-of: aegis-ai
+data:
+  CLIENT_PROJECT_ID: aegis-client-420
+  ENVIRONMENT: gke
+  TEAM: demo
+  CHAOS_ENABLED: "true"
+  CHAOS_AUTO_MODE: "false"
+  CHAOS_AUTO_INTERVAL_SECONDS: "120"
+  CHAOS_AUTO_INITIAL_DELAY_SECONDS: "60"
+  ALLOW_DESTRUCTIVE_CHAOS: "false"
+  CHAOS_MAX_SLOW_SECONDS: "30"
+  CHAOS_MAX_PRICING_5XX_SECONDS: "300"
+  JAVA_API_BASE_URL: http://java-api:8080
+  JAVA_API_TIMEOUT_MS: "1000"
