@@ -30,6 +30,17 @@ Required cloud resources:
 - region: `europe-central2`
 - Artifact Registry repository: `aegis-client-services`
 
+Recommended GKE setup for the course demo:
+
+- one regional GKE Standard node pool pinned to zone `europe-central2-a`
+- one `e2-medium` spot node
+- `20GB` `pd-standard` node disk
+- workload requests kept intentionally low: `25m` CPU per service
+- memory limits set so Cloud Monitoring can report meaningful memory pressure
+- `strategy: Recreate` on both deployments, because a one-node demo cluster does not have spare capacity for rolling double-pod updates
+
+`e2-small` is too tight after GKE system pods reserve CPU and memory. It caused rollout pressure in live tests. `e2-medium` is the smallest setup that ran both demo services reliably without making the client project expensive. Larger machines are unnecessary for this project.
+
 Create or update the client infrastructure first:
 
 ```bash
@@ -131,3 +142,5 @@ The client Log Router sink only exports logs from:
 - severity `ERROR` or higher
 
 The analyzer also applies the same candidate check before it creates receipts, calls Gemini, posts Slack, or writes BigQuery.
+
+Auto chaos is disabled in Kubernetes and local Compose by default. Demo incidents should be triggered manually with a known `X-Correlation-ID`; otherwise the log sink can create surprise incidents during the professor demo.

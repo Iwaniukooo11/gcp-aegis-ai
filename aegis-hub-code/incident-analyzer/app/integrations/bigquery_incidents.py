@@ -25,6 +25,22 @@ def _table_ref() -> str:
     return f"{s.gcp_project}.{s.bigquery_dataset}.{s.bigquery_incidents_table}"
 
 
+def _iso_now() -> str:
+    return datetime.now(tz=timezone.utc).isoformat()
+
+
+def _parse_log_timestamp(raw: str) -> str | None:
+    if not raw:
+        return None
+    try:
+        ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts.isoformat()
+
+
 def insert_incident(row: dict, insert_id: str | None = None) -> None:
     """Insert a single incident row into BigQuery.
 
@@ -77,9 +93,13 @@ def build_incident_row(
     slack_channel: str | None = None,
     slack_message_ts: str | None = None,
     first_alert_sent_at: str | None = None,
+    hub_received_at: str | None = None,
+    log_timestamp: str = "",
 ) -> dict:
     """Build a BigQuery row dict with all required and optional incident fields."""
-    now = datetime.now(tz=timezone.utc).isoformat()
+    now = _iso_now()
+    received_at = hub_received_at or now
+    created_at = _parse_log_timestamp(log_timestamp) or received_at
     return {
         "incident_id": incident_id,
         "idempotency_key": idempotency_key,
@@ -100,8 +120,8 @@ def build_incident_row(
         "ai_recommendation": ai_recommendation,
         "slack_channel": slack_channel,
         "slack_message_ts": slack_message_ts,
-        "created_at": now,
-        "hub_received_at": now,
+        "created_at": created_at,
+        "hub_received_at": received_at,
         "incident_persisted_at": now,
         "first_alert_sent_at": first_alert_sent_at,
         "ai_summary_completed_at": now if ai_summary else None,

@@ -3,9 +3,10 @@
 from typing import Literal, TypedDict
 
 MetricValueKind = Literal[
-    "cpu_limit_fraction",
+    "utilization_fraction",
     "bytes",
     "counter",
+    "cumulative_cpu",
 ]
 
 
@@ -20,14 +21,32 @@ ALLOWED_FETCH_METRICS: tuple[FetchMetricSpec, ...] = (
     {
         "type": "cpu_utilization",
         "gcp_metric_type": "kubernetes.io/container/cpu/limit_utilization",
-        "value_kind": "cpu_limit_fraction",
+        "value_kind": "utilization_fraction",
         "description": "Fraction of container CPU limit in use (0.0–1.0, GKE k8s_container)",
+    },
+    {
+        "type": "cpu_core_usage",
+        "gcp_metric_type": "kubernetes.io/container/cpu/core_usage_time",
+        "value_kind": "cumulative_cpu",
+        "description": "Cumulative container CPU time; summarized as average cores over the last sample interval",
+    },
+    {
+        "type": "cpu_request_utilization",
+        "gcp_metric_type": "kubernetes.io/container/cpu/request_utilization",
+        "value_kind": "utilization_fraction",
+        "description": "Fraction of requested CPU in use (0.0–1.0, GKE k8s_container)",
     },
     {
         "type": "memory_utilization",
         "gcp_metric_type": "kubernetes.io/container/memory/used_bytes",
         "value_kind": "bytes",
         "description": "Container memory used in bytes (GKE k8s_container)",
+    },
+    {
+        "type": "memory_limit_utilization",
+        "gcp_metric_type": "kubernetes.io/container/memory/limit_utilization",
+        "value_kind": "utilization_fraction",
+        "description": "Fraction of container memory limit in use (0.0–1.0, GKE k8s_container)",
     },
     {
         "type": "pod_restart_count",

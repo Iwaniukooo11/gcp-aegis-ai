@@ -9,11 +9,11 @@ from app.integrations.metric_catalog import (
 )
 from app.integrations.vertex import _build_k8s_container_filter, _normalize_metric_item
 
-_QUESTION_METRIC_KEYWORDS: tuple[tuple[str, str], ...] = (
-    ("cpu", "cpu_utilization"),
-    ("memory", "memory_utilization"),
-    ("mem", "memory_utilization"),
-    ("restart", "pod_restart_count"),
+_QUESTION_METRIC_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("cpu", ("cpu_utilization", "cpu_core_usage", "cpu_request_utilization")),
+    ("memory", ("memory_utilization", "memory_limit_utilization")),
+    ("mem", ("memory_utilization", "memory_limit_utilization")),
+    ("restart", ("pod_restart_count",)),
 )
 
 _LEGACY_CUMULATIVE_CPU = "kubernetes.io/container/cpu/core_usage_time"
@@ -40,12 +40,17 @@ def supplement_metric_plan_for_question(plan: dict, question: str, session: dict
             if spec is not None:
                 metrics.append(spec)
 
-    for keyword, type_id in _QUESTION_METRIC_KEYWORDS:
-        if keyword in q and type_id not in existing_types:
+    for keyword, type_ids in _QUESTION_METRIC_KEYWORDS:
+        if keyword not in q:
+            continue
+        for type_id in type_ids:
+            if type_id in existing_types:
+                continue
             spec = _normalize_metric_item({"type": type_id}, session, window)
-            if spec is not None:
-                metrics.append(spec)
-                existing_types.add(type_id)
+            if spec is None:
+                continue
+            metrics.append(spec)
+            existing_types.add(type_id)
 
     return {
         "metrics": metrics,
@@ -55,8 +60,8 @@ def supplement_metric_plan_for_question(plan: dict, question: str, session: dict
 
 
 def parse_session_anchor(session: dict) -> datetime | None:
-    """Return incident time from session created_at for Monitoring lookback."""
-    raw = session.get("created_at")
+    """Return incident time from log_timestamp or session created_at for Monitoring lookback."""
+    raw = session.get("log_timestamp") or session.get("created_at")
     if not raw:
         return None
     if isinstance(raw, str):
@@ -113,7 +118,9 @@ def _point_nearest_anchor(points: list[dict], anchor: datetime | None) -> dict |
         if best_delta is None or delta < best_delta:
             best_delta = delta
             best = point
-    return best or points[-1]
+    if best is not None and best_delta is not None and best_delta <= 3600:
+        return best
+    return points[-1]
 
 
 def _average_cores_from_cumulative(points: list[dict]) -> float | None:
@@ -152,21 +159,32 @@ def _summarize_series(
     incident_point = _point_nearest_anchor(all_points, anchor_time)
     incident_value = _point_value(incident_point) if incident_point else None
 
-    if value_kind == "cpu_limit_fraction":
+    if value_kind == "utilization_fraction":
         if incident_value is None:
             return {"status": "no_points", "type": type_id, "gcp_metric_type": gcp_metric}
         percent = round(incident_value * 100.0, 2)
+        unit_by_type = {
+            "cpu_utilization": "percent_of_cpu_limit",
+            "cpu_request_utilization": "percent_of_cpu_request",
+            "memory_limit_utilization": "percent_of_memory_limit",
+        }
+        display_unit_by_type = {
+            "cpu_utilization": "container CPU limit",
+            "cpu_request_utilization": "requested CPU",
+            "memory_limit_utilization": "container memory limit",
+        }
+        display_unit = display_unit_by_type.get(type_id, "limit")
         return {
             "status": "ok",
             "type": type_id,
             "gcp_metric_type": gcp_metric,
             "utilization_fraction": round(incident_value, 4),
             "utilization_percent": percent,
-            "unit": "percent_of_cpu_limit",
-            "display": f"{percent}% of container CPU limit",
+            "unit": unit_by_type.get(type_id, "percent"),
+            "display": f"{percent}% of {display_unit}",
         }
 
-    if gcp_metric == _LEGACY_CUMULATIVE_CPU:
+    if value_kind == "cumulative_cpu" or gcp_metric == _LEGACY_CUMULATIVE_CPU:
         cores = _average_cores_from_cumulative(all_points)
         if cores is not None:
             return {
@@ -235,19 +253,44 @@ def summarize_metric_results(
 def format_metric_facts_line(question: str, summary: dict) -> str | None:
     """Deterministic metric sentence so Slack does not misread cumulative counters."""
     q = question.lower()
+    if "all metric" in q or "all metrics" in q:
+        lines = []
+        for type_id, entry in summary.items():
+            if entry.get("status") == "ok" and entry.get("display"):
+                lines.append(f"{type_id}: *{entry['display']}*")
+        return "\n".join(lines) if lines else None
+
     lines: list[str] = []
 
     if "cpu" in q:
-        cpu = summary.get("cpu_utilization", {})
-        if cpu.get("status") == "ok" and cpu.get("display"):
+        cpu = next(
+            (
+                summary.get(type_id, {})
+                for type_id in ("cpu_utilization", "cpu_request_utilization", "cpu_core_usage")
+                if summary.get(type_id, {}).get("status") == "ok"
+                and summary.get(type_id, {}).get("display")
+            ),
+            {},
+        )
+        if cpu.get("display"):
             lines.append(f"CPU at incident time: *{cpu['display']}*")
-        elif cpu.get("status") in ("no_data", "no_points", "error"):
+        else:
             lines.append("CPU at incident time: no Monitoring data in lookback window.")
 
     if "mem" in q or "memory" in q:
-        mem = summary.get("memory_utilization", {})
-        if mem.get("status") == "ok" and mem.get("display"):
+        mem = next(
+            (
+                summary.get(type_id, {})
+                for type_id in ("memory_utilization", "memory_limit_utilization")
+                if summary.get(type_id, {}).get("status") == "ok"
+                and summary.get(type_id, {}).get("display")
+            ),
+            {},
+        )
+        if mem.get("display"):
             lines.append(f"Memory at incident time: *{mem['display']}*")
+        else:
+            lines.append("Memory at incident time: no Monitoring data in lookback window.")
 
     if "restart" in q:
         restarts = summary.get("pod_restart_count", {})

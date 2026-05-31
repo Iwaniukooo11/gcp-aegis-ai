@@ -17,6 +17,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/slack")
 
 
+def _format_incident_line(inc: dict) -> str:
+    mins = inc.get("minutes_ago")
+    age = f"{mins}m ago" if mins is not None else "unknown age"
+    short = inc.get("short_message") or ""
+    error_type = inc.get("error_type") or ""
+    if short.strip() == "Request completed" and error_type:
+        short = error_type
+    elif not short.strip() and error_type:
+        short = error_type
+    return (
+        f"• *{inc['incident_id']}* — {inc.get('service_name', '?')} "
+        f"| {inc.get('severity', '?')} | {age}\n  {short}"
+    )
+
+
 def _format_incidents_list(data: dict) -> str:
     """Format the QP incidents response as a Slack mrkdwn block."""
     incidents = data.get("incidents", [])
@@ -25,16 +40,16 @@ def _format_incidents_list(data: dict) -> str:
 
     lines = [f"*Recent incidents ({data.get('count', 0)}):*"]
     for inc in incidents:
-        mins = inc.get("minutes_ago")
-        age = f"{mins}m ago" if mins is not None else "unknown age"
-        lines.append(
-            f"• *{inc['incident_id']}* — {inc.get('service_name', '?')} "
-            f"| {inc.get('severity', '?')} | {age}\n  {inc.get('short_message', '')}"
-        )
+        lines.append(_format_incident_line(inc))
     return "\n".join(lines)
 
 
-async def _fetch_and_post(limit: int, response_url: str) -> None:
+async def _fetch_and_post(
+    limit: int,
+    response_url: str,
+    channel_id: str,
+    user_id: str,
+) -> None:
     """Background task: call QP and post result via response_url."""
     try:
         data = query_processor_client.get_latest_incidents(limit=limit)
@@ -43,7 +58,15 @@ async def _fetch_and_post(limit: int, response_url: str) -> None:
         logger.error("QP latest incidents failed: %s", exc)
         text = "Failed to fetch incidents. Please try again."
 
-    slack_web_api.post_to_response_url(response_url, text)
+    try:
+        slack_web_api.post_to_response_url(response_url, text)
+    except Exception as exc:
+        logger.warning("response_url post failed: %s; posting fallback to channel", exc)
+        if channel_id:
+            slack_web_api.post_message(
+                channel=channel_id,
+                text=f"<@{user_id}> {text}" if user_id else text,
+            )
 
 
 @router.post("/commands", dependencies=[Depends(verify_slack_signature)])
@@ -52,6 +75,8 @@ async def slack_commands(request: Request, background_tasks: BackgroundTasks) ->
     form = await request.form()
     command = form.get("command", "")
     response_url = str(form.get("response_url", ""))
+    channel_id = str(form.get("channel_id", ""))
+    user_id = str(form.get("user_id", ""))
 
     if command != "/aegis-latest-incidents":
         return JSONResponse({"response_type": "ephemeral", "text": f"Unknown command: {command}"})
@@ -63,7 +88,7 @@ async def slack_commands(request: Request, background_tasks: BackgroundTasks) ->
     except ValueError:
         limit = 10
 
-    background_tasks.add_task(_fetch_and_post, limit, response_url)
+    background_tasks.add_task(_fetch_and_post, limit, response_url, channel_id, user_id)
 
     return JSONResponse({
         "response_type": "ephemeral",

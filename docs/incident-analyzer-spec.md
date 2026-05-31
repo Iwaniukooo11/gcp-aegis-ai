@@ -496,10 +496,13 @@ This ensures that retries reuse the same `incident_id` and do not create a secon
     }
   ],
   "created_at": "2026-04-26T16:56:05Z",
+  "log_timestamp": "2026-04-26T16:56:00Z",
   "updated_at": "2026-04-26T16:56:05Z",
   "ttl": "2026-04-27T16:56:05Z"
 }
 ```
+
+`log_timestamp` is the timestamp from the original Cloud Logging entry. Query Processor uses it to query Cloud Monitoring around the real incident time.
 
 ### 9.4 `incident_receipts` collection
 

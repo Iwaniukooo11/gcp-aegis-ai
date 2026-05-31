@@ -59,6 +59,46 @@ class TestLatestIncidentsCommand:
         assert "java-api" in posted_text
         assert "5m ago" in posted_text
 
+    def test_request_completed_short_message_falls_back_to_error_type(
+        self, client, sg_qp_client, sg_slack_web_api, sample_bq_rows, signed_slack_form
+    ):
+        qp_result = {
+            "incidents": [
+                {
+                    **sample_bq_rows[0],
+                    "short_message": "Request completed",
+                    "error_type": "OutOfMemoryError",
+                    "minutes_ago": 5,
+                }
+            ],
+            "count": 1,
+            "limit": 10,
+        }
+        with patch.object(sg_qp_client, "get_latest_incidents", return_value=qp_result), \
+             patch.object(sg_slack_web_api, "post_to_response_url") as mock_post_url:
+            _post_cmd(client, signed_slack_form)
+
+        posted_text: str = mock_post_url.call_args.args[1]
+        assert "OutOfMemoryError" in posted_text
+        assert "Request completed" not in posted_text
+
+    def test_response_url_failure_posts_channel_fallback(
+        self, client, sg_qp_client, sg_slack_web_api, sample_bq_rows, signed_slack_form
+    ):
+        qp_result = {
+            "incidents": [{**sample_bq_rows[0], "minutes_ago": 5}],
+            "count": 1,
+            "limit": 10,
+        }
+        with patch.object(sg_qp_client, "get_latest_incidents", return_value=qp_result), \
+             patch.object(sg_slack_web_api, "post_to_response_url", side_effect=RuntimeError("expired")), \
+             patch.object(sg_slack_web_api, "post_message", return_value={"ok": True}) as mock_post:
+            _post_cmd(client, signed_slack_form)
+
+        mock_post.assert_called_once()
+        assert mock_post.call_args.kwargs["channel"] == "C_TEST"
+        assert "INC-2026-000042" in mock_post.call_args.kwargs["text"]
+
     def test_custom_limit_passed_to_qp(self, client, sg_qp_client, sg_slack_web_api, signed_slack_form):
         with patch.object(sg_qp_client, "get_latest_incidents", return_value={"incidents": [], "count": 0}) as mock_qp, \
              patch.object(sg_slack_web_api, "post_to_response_url"):

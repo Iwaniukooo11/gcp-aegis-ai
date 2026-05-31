@@ -11,11 +11,13 @@ import asyncio
 import logging
 import re
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.integrations import query_processor_client, slack_web_api
+from app.integrations.query_processor_client import QueryProcessorError
 from app.security import verify_slack_signature
 from app.slack_event_dedup import is_duplicate_event
 
@@ -25,6 +27,8 @@ router = APIRouter(prefix="/slack")
 
 INCIDENT_ID_RE = re.compile(r"INC-\d{4}-\d{6}")
 BOT_MENTION_RE = re.compile(r"<@[A-Z0-9]+>")
+SESSION_RETRY_ATTEMPTS = 6
+SESSION_RETRY_DELAY_S = 5.0
 
 
 def _parse_mention(text: str) -> tuple[str | None, str]:
@@ -41,6 +45,57 @@ def _parse_mention(text: str) -> tuple[str | None, str]:
     return incident_id, question
 
 
+def _is_session_not_ready(exc: Exception) -> bool:
+    return isinstance(exc, QueryProcessorError) and (
+        exc.status_code == 404 or "SESSION_NOT_FOUND" in exc.detail
+    )
+
+
+async def _query_incident_with_session_retry(incident_id: str, question: str) -> dict:
+    last_exc: Exception | None = None
+    for attempt in range(SESSION_RETRY_ATTEMPTS):
+        try:
+            return query_processor_client.query_incident(incident_id, question)
+        except Exception as exc:
+            if not _is_session_not_ready(exc):
+                raise
+            last_exc = exc
+            if attempt + 1 < SESSION_RETRY_ATTEMPTS:
+                logger.info(
+                    "QP session not ready for %s (%s/%s), retry in %ss",
+                    incident_id,
+                    attempt + 1,
+                    SESSION_RETRY_ATTEMPTS,
+                    SESSION_RETRY_DELAY_S,
+                )
+                await asyncio.sleep(SESSION_RETRY_DELAY_S)
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("session retry loop exited without result")
+
+
+def _slack_text_for_query_error(incident_id: str, exc: Exception) -> str:
+    if _is_session_not_ready(exc):
+        return (
+            f"I do not have session context for *{incident_id}* yet. "
+            "Check the incident ID or wait a few seconds after the alert."
+        )
+    if isinstance(exc, QueryProcessorError) and exc.status_code in (502, 503, 504):
+        return (
+            f"Query Processor is still warming up for *{incident_id}*. "
+            "Wait a moment before asking again."
+        )
+    if isinstance(exc, httpx.TimeoutException):
+        return (
+            f"Analysis for *{incident_id}* is taking longer than expected. "
+            "Check again in a minute."
+        )
+    return (
+        f"Sorry, I could not analyze incident *{incident_id}* right now. "
+        "Please try again shortly."
+    )
+
+
 async def _handle_mention(
     incident_id: str | None,
     question: str,
@@ -51,19 +106,36 @@ async def _handle_mention(
     if incident_id is None:
         slack_web_api.post_message(
             channel=channel,
-            text="Could not find an incident ID in your message (expected format: `INC-YYYY-NNNNNN`).",
+            text=(
+                "Could not find an incident ID in your message. "
+                "Use format: `@Aegis INC-YYYY-NNNNNN your question`."
+            ),
+            thread_ts=thread_ts,
+        )
+        return
+
+    if not question.strip():
+        slack_web_api.post_message(
+            channel=channel,
+            text=(
+                f"Please include a question after *{incident_id}* "
+                f"(example: `@Aegis {incident_id} what caused this error?`)."
+            ),
             thread_ts=thread_ts,
         )
         return
 
     try:
-        result = query_processor_client.query_incident(incident_id, question or "What is the status?")
+        result = await _query_incident_with_session_retry(incident_id, question)
         slack_text = result.get("slack_text", "Analysis complete but no response text returned.")
     except Exception as exc:
         logger.error("QP query failed for %s: %s", incident_id, exc)
-        slack_text = f"Sorry, I could not analyze incident *{incident_id}* right now. Please try again shortly."
+        slack_text = _slack_text_for_query_error(incident_id, exc)
 
-    slack_web_api.post_message(channel=channel, text=slack_text, thread_ts=thread_ts)
+    try:
+        slack_web_api.post_message(channel=channel, text=slack_text, thread_ts=thread_ts)
+    except Exception as exc:
+        logger.error("Failed to post Slack reply for %s: %s", incident_id, exc)
 
 
 @router.post("/events", dependencies=[Depends(verify_slack_signature)])

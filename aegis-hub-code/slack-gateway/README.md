@@ -17,6 +17,10 @@ services. No Firestore, BigQuery, Vertex AI, or Cloud Monitoring access.
 App mention parsing (extracting `INC-YYYY-NNNNNN` + question) happens here,
 not in Query Processor. Regex: `INC-\d{4}-\d{6}`.
 
+If Query Processor returns `SESSION_NOT_FOUND`, Gateway retries briefly before
+posting an error. This covers the small race where a user mentions the bot while
+Incident Analyzer is still seeding Firestore session context.
+
 ## OIDC outbound auth
 
 All calls to Query Processor use Google OIDC:

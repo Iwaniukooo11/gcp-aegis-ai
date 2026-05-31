@@ -156,7 +156,7 @@ kubectl -n aegis-demo port-forward svc/python-api 8000:8000
 In another terminal, trigger a clean Python incident:
 
 ```bash
-curl -i -H "X-Correlation-ID: demo-python-001" \
+curl -i -H "X-Correlation-ID: demo-python-$(date +%s)" \
   "http://localhost:8000/chaos/exception?type=value_error"
 ```
 
@@ -173,11 +173,37 @@ Get the latest incident:
 
 ```bash
 bq query --project_id=aegis-hub-2137 --use_legacy_sql=false '
-SELECT incident_id, service_name, error_type, severity, slack_message_ts, created_at
+SELECT incident_id, idempotency_key, service_name, error_type, severity, slack_message_ts, created_at
 FROM `aegis-hub-2137.aegis_incidents.incidents`
 ORDER BY created_at DESC
 LIMIT 1'
 ```
+
+Verify Firestore session context for the returned incident ID:
+
+```bash
+INCIDENT_ID="INC-YYYY-NNNNNN"
+ACCESS_TOKEN="$(gcloud auth print-access-token)"
+curl -sS -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  "https://firestore.googleapis.com/v1/projects/aegis-hub-2137/databases/(default)/documents/sessions/${INCIDENT_ID}"
+```
+
+The session must include `client_project_id`, `service_name`, `cluster_name`, `namespace`, `error_type`, `messages`, and `log_timestamp`.
+
+Verify Cloud Monitoring has real client metrics around the incident:
+
+```bash
+START_TIME="$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
+END_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+ACCESS_TOKEN="$(gcloud auth print-access-token)"
+curl -sS -G -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  --data-urlencode 'filter=metric.type="kubernetes.io/container/memory/used_bytes" AND resource.type="k8s_container" AND resource.labels.cluster_name="mock-gke-standard" AND resource.labels.namespace_name="aegis-demo" AND resource.labels.container_name="python-api"' \
+  --data-urlencode "interval.startTime=${START_TIME}" \
+  --data-urlencode "interval.endTime=${END_TIME}" \
+  'https://monitoring.googleapis.com/v3/projects/aegis-client-420/timeSeries'
+```
+
+Expected result: non-empty `timeSeries[]` with points for `python-api`.
 
 In Slack:
 

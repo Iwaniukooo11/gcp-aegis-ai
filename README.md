@@ -103,3 +103,4 @@ Full runbook:
 
 - [Client Workload Deployment](docs/client-workload-deployment.md)
 - [Live Demo Operations](docs/live-demo-operations.md)
+- [Project Status And PR Consolidation](docs/project-status-2026-05-31.md)

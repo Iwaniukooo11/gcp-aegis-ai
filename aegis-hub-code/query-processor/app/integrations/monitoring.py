@@ -16,6 +16,7 @@ from app.integrations.metric_catalog import GCP_METRIC_TYPE_BY_ID
 logger = logging.getLogger(__name__)
 
 _ALLOWED_GCP_METRIC_TYPES = frozenset(GCP_METRIC_TYPE_BY_ID.values())
+_ANCHOR_AFTER_BUFFER = timedelta(minutes=5)
 
 
 def _build_time_series_filter(metric_type: str, extra_filter: str) -> str | None:
@@ -36,6 +37,38 @@ def _relax_cluster_filter(filter_str: str) -> str:
         if p and not p.startswith('resource.labels.cluster_name=')
     ]
     return " AND ".join(parts)
+
+
+def _point_value(point) -> float | int | bool | str | None:
+    value = point.value
+    if value is None:
+        return None
+    field = value._pb.WhichOneof("value")
+    if not field:
+        return None
+    return getattr(value, field)
+
+
+def _query_interval(
+    anchor_time: datetime | None,
+    window_minutes: int,
+) -> monitoring_v3.TimeInterval:
+    now = datetime.now(tz=timezone.utc)
+    if anchor_time is None:
+        end_time = now
+        start_time = end_time - timedelta(minutes=window_minutes)
+    else:
+        if anchor_time.tzinfo is None:
+            anchor_time = anchor_time.replace(tzinfo=timezone.utc)
+        end_time = min(now, anchor_time + _ANCHOR_AFTER_BUFFER)
+        start_time = anchor_time - timedelta(minutes=window_minutes)
+
+    return monitoring_v3.TimeInterval(
+        {
+            "end_time": {"seconds": int(end_time.timestamp())},
+            "start_time": {"seconds": int(start_time.timestamp())},
+        }
+    )
 
 
 def execute_plan(
@@ -75,17 +108,7 @@ def execute_plan(
             logger.warning("Skipping metric spec without metric_type: %s", metric_spec)
             continue
 
-        end_time = anchor_time or datetime.now(tz=timezone.utc)
-        if end_time.tzinfo is None:
-            end_time = end_time.replace(tzinfo=timezone.utc)
-        start_time = end_time - timedelta(minutes=window_minutes)
-
-        interval = monitoring_v3.TimeInterval(
-            {
-                "end_time": {"seconds": int(end_time.timestamp())},
-                "start_time": {"seconds": int(start_time.timestamp())},
-            }
-        )
+        interval = _query_interval(anchor_time, window_minutes)
 
         result_key = metric_type or filter_str
 
@@ -134,17 +157,11 @@ def _serialize_series(series_list: list) -> list[dict]:
         points = []
         for point in series.points:
             interval = point.interval
-            value = point.value
             points.append(
                 {
                     "start_time": interval.start_time.isoformat() if interval.start_time else None,
                     "end_time": interval.end_time.isoformat() if interval.end_time else None,
-                    "value": (
-                        value.double_value
-                        or value.int64_value
-                        or value.bool_value
-                        or str(value.string_value)
-                    ),
+                    "value": _point_value(point),
                 }
             )
         output.append(

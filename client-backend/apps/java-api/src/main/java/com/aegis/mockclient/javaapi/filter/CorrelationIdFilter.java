@@ -72,7 +72,13 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
 		Map<String, Object> payload = new LinkedHashMap<>();
 		payload.put("timestamp", OffsetDateTime.now(ZoneOffset.UTC).toString());
 		payload.put("severity", isError ? "ERROR" : "INFO");
-		payload.put("message", "Request completed");
+		Object errorTypeAttr = request.getAttribute(ObservabilityAttributes.ERROR_TYPE);
+		String message = isError
+				? (errorTypeAttr != null
+						? errorTypeAttr + " on " + request.getMethod() + " " + request.getRequestURI()
+						: "HTTP " + statusCode + " on " + request.getMethod() + " " + request.getRequestURI())
+				: "Request completed";
+		payload.put("message", message);
 		payload.put("service_name", properties.serviceName());
 		payload.put("client_project_id", properties.clientProjectId());
 		payload.put("environment", properties.environment());
