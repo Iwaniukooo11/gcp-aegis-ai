@@ -155,23 +155,40 @@ Check Slack:
 
 ## Live Demo Flow
 
-Open port-forward to the Python API:
+This is the primary professor demo. It simulates a real customer-facing outage:
+checkout depends on the internal pricing service, pricing becomes slow, and
+checkout times out.
+
+Open port-forward sessions to both services:
 
 ```bash
 kubectl -n aegis-demo port-forward svc/python-api 8000:8000
 ```
 
-In another terminal, trigger a clean Python incident:
+```bash
+kubectl -n aegis-demo port-forward svc/java-api 8080:8080
+```
+
+In another terminal, enable controlled pricing latency:
+
+```bash
+curl -i -X POST "http://localhost:8080/admin/failures/pricing-latency?seconds=15"
+```
+
+Now trigger checkout with a known correlation ID:
 
 ```bash
 curl -i -H "X-Correlation-ID: demo-python-$(date +%s)" \
-  "http://localhost:8000/chaos/exception?type=value_error"
+  "http://localhost:8000/api/checkout"
 ```
 
 Expected result:
 
-- Python API returns HTTP 500
-- GKE writes one structured `ERROR` log with `incident_candidate=true`
+- Python API returns HTTP 504
+- GKE writes one structured `ERROR` log from `python-api`
+- the log has `path=/api/checkout`, `upstream_service=java-api`,
+  `scenario=PYTHON_DOWNSTREAM_TIMEOUT`, and `incident_candidate=true`
+- the log message says checkout failed because java-api pricing timed out
 - Client Log Router sends it to Hub Pub/Sub
 - Incident Analyzer creates one incident
 - Slack Gateway posts an alert
@@ -220,13 +237,34 @@ In Slack:
 @<aegis-bot-name> INC-YYYY-NNNNNN what happened and what should I check first?
 ```
 
-Optional downstream dependency demo:
+Expected bot behavior:
+
+- says checkout failed because the pricing dependency timed out
+- mentions `python-api`, `/api/checkout`, and `java-api`
+- reports real Cloud Monitoring CPU/RAM facts if asked about resources
+- does not claim CPU/RAM caused the incident when metrics are normal
+- does not describe this scenario as chaos engineering
+
+Optional pricing-unavailable demo:
 
 ```bash
-kubectl -n aegis-demo port-forward svc/java-api 8080:8080
-curl -i -X POST "http://localhost:8080/chaos/pricing-5xx?seconds=60"
+curl -i -X POST "http://localhost:8080/admin/failures/pricing-unavailable?seconds=60"
 curl -i -H "X-Correlation-ID: demo-downstream-001" "http://localhost:8000/api/checkout"
 ```
+
+This produces a realistic HTTP 502 checkout incident. It may also produce a
+separate `java-api` pricing incident because the upstream service itself returns
+HTTP 503. That is acceptable, but it is noisier than the latency demo.
+
+Fallback direct exception smoke test:
+
+```bash
+curl -i -H "X-Correlation-ID: demo-python-fallback-$(date +%s)" \
+  "http://localhost:8000/chaos/exception?type=value_error"
+```
+
+Use this only if the dependency demo is blocked. It is less compelling because
+the bot can correctly identify it as an intentional chaos endpoint.
 
 ## Debug Commands
 

@@ -335,6 +335,11 @@ Outputs:
 - `ai_recommendation`
 - optional machine-usable classification tags
 
+Known checkout dependency incidents may use deterministic structured-log facts
+instead of free-form Gemini inference for the first summary. If
+`path=/api/checkout` and `upstream_service=java-api`, the alert should describe
+checkout impact and pricing dependency failure, not chaos mechanics.
+
 ### 7.3 Gemini step 3 — Slack-ready text
 
 Purpose:
@@ -489,6 +494,13 @@ This ensures that retries reuse the same `incident_id` and do not create a secon
   "pod_name": "java-api-abc123",
   "severity": "ERROR",
   "error_type": "OutOfMemoryError",
+  "scenario": "JAVA_OOM",
+  "short_message": "Java heap space",
+  "stack_trace_preview": "java.lang.OutOfMemoryError: Java heap space ...",
+  "upstream_service": "",
+  "http_method": "GET",
+  "path": "/api/work",
+  "status_code": 500,
   "ai_summary": "Java heap OOM in java-api pod",
   "messages": [
     {
@@ -503,7 +515,7 @@ This ensures that retries reuse the same `incident_id` and do not create a secon
 }
 ```
 
-`pod_name` scopes Cloud Monitoring queries to the exact pod that emitted the incident log. `log_timestamp` is the timestamp from the original Cloud Logging entry. Query Processor uses it to query Cloud Monitoring around the real incident time.
+`pod_name` scopes Cloud Monitoring queries to the exact pod that emitted the incident log. `log_timestamp` is the timestamp from the original Cloud Logging entry. Query Processor uses it to query Cloud Monitoring around the real incident time. `scenario`, `short_message`, `stack_trace_preview`, `upstream_service`, `http_method`, `path`, and `status_code` preserve the concrete incident context for Slack follow-up questions.
 
 ### 9.4 `incident_receipts` collection
 

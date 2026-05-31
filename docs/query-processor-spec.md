@@ -370,7 +370,11 @@ All Gemini calls use Vertex AI in the Hub project (`roles/aiplatform.user`). Pro
 
 ### 6.1 Gemini #1 — Metric fetch plan
 
-**Input context:** Full `messages[]`, plus session fields: `client_project_id`, `service_name`, `cluster_name` (if present), `ai_summary`, `last_error_type`, etc.
+**Input context:** Full `messages[]`, plus session fields:
+`client_project_id`, `service_name`, `cluster_name`, `namespace`,
+`pod_name`, `scenario`, `error_type`, `short_message`,
+`stack_trace_preview`, `upstream_service`, `http_method`, `path`,
+`status_code`, `ai_summary`, and `log_timestamp` when present.
 
 **Output:** JSON matching **`MetricFetchPlan`** schema (validate before Monitoring calls; on failure return 502 `GEMINI_INVALID_PLAN`).
 
@@ -465,6 +469,13 @@ When an incident is first processed and alerted, Incident Analyzer **must** crea
   "namespace": "default",
   "severity": "ERROR",
   "error_type": "OutOfMemoryError",
+  "scenario": "JAVA_OOM",
+  "short_message": "Java heap space",
+  "stack_trace_preview": "java.lang.OutOfMemoryError: Java heap space ...",
+  "upstream_service": "",
+  "http_method": "GET",
+  "path": "/api/work",
+  "status_code": 500,
   "ai_summary": "Java heap OOM in java-api pod",
   "messages": [
     {
@@ -485,6 +496,8 @@ When an incident is first processed and alerted, Incident Analyzer **must** crea
 | `service_name` | Analyzer | Monitoring resource scope |
 | `cluster_name`, `namespace` | Analyzer | Optional Monitoring labels |
 | `severity`, `error_type` | Analyzer | Context for Gemini |
+| `scenario`, `short_message`, `stack_trace_preview` | Analyzer | Concrete incident signal for follow-up answers |
+| `upstream_service`, `http_method`, `path`, `status_code` | Analyzer | Dependency and HTTP context for root-cause analysis |
 | `ai_summary` | Analyzer | Short alert summary |
 | `messages` | Analyzer (initial), QP (append) | Gemini conversation |
 | `created_at`, `updated_at` | Analyzer / QP | Bookkeeping |

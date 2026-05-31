@@ -51,6 +51,13 @@ to the Slack response before Gemini explanation text. This prevents Gemini from
 inventing metric values. Queries are scoped to the incident pod when `pod_name`
 exists in Firestore session context.
 
+Incident context also includes `scenario`, `short_message`,
+`stack_trace_preview`, `upstream_service`, `http_method`, `path`, and
+`status_code` when Incident Analyzer extracted them. The checkout demo depends
+on this: the bot should explain that `/api/checkout` failed because `java-api`
+pricing timed out or returned an error, and should treat normal CPU/RAM metrics
+as evidence against resource exhaustion.
+
 ## Local dev
 
 ```bash

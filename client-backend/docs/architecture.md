@@ -36,6 +36,26 @@ and calls `java-api` to create realistic downstream dependency incidents.
 `java-api` is the internal pricing dependency. It owns JVM-specific failures and
 serves the pricing endpoint used by `python-api`.
 
+## Demo Business Story
+
+The live demo models a small e-commerce checkout flow:
+
+```text
+customer checkout -> python-api /api/checkout -> java-api /api/pricing
+```
+
+The preferred incident is pricing latency. An operator enables a controlled
+failure window through `java-api /admin/failures/pricing-latency`, then calls
+`python-api /api/checkout`. `python-api` returns HTTP 504 and emits the
+customer-facing incident log. `java-api` eventually returns normally, so the
+demo produces one clean checkout incident instead of two unrelated-looking
+alerts.
+
+The secondary incident is pricing unavailable. `java-api
+/admin/failures/pricing-unavailable` makes `/api/pricing` return HTTP 503.
+This is useful for showing a hard dependency failure, but it may create both an
+upstream `java-api` incident and a downstream `python-api` checkout incident.
+
 ## Observability Contract
 
 Every incident-producing failure must emit one single-line structured JSON log
@@ -83,6 +103,15 @@ Example:
 }
 ```
 
+For the main demo, the message should be business-facing, for example:
+
+```text
+Checkout failed because java-api pricing request exceeded configured timeout
+```
+
+The incident log should not mention `chaos` unless the failing request itself is
+a direct `/chaos/*` fallback endpoint.
+
 ## HTTP Error Contract
 
 Do not leak full stack traces to HTTP callers. Return structured JSON errors:
@@ -127,6 +156,10 @@ ALLOW_DESTRUCTIVE_CHAOS=false
 Avoid random always-on failures, public chaos endpoints, OOM loops, and repeated
 crash loops. Resource pressure and burst scenarios must enforce bounded limits
 from configuration.
+
+Prefer `/admin/failures/*` endpoints in demo docs and professor presentation.
+The older `/chaos/*` endpoints remain as compatibility and fallback smoke-test
+routes.
 
 ## Cloud Constraints For Later
 
