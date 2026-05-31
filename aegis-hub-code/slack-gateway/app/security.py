@@ -14,6 +14,14 @@ SLACK_SIGNATURE_VERSION = "v0"
 SLACK_MAX_CLOCK_SKEW_SECONDS = 60 * 5
 
 
+def _external_base_url(request: Request) -> str:
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    forwarded_host = request.headers.get("x-forwarded-host")
+    proto = (forwarded_proto or request.url.scheme).split(",")[0].strip()
+    host = (forwarded_host or request.headers.get("host") or request.url.netloc).split(",")[0].strip()
+    return f"{proto}://{host}"
+
+
 async def verify_slack_signature(
     request: Request,
     x_slack_request_timestamp: str | None = Header(default=None),
@@ -52,7 +60,7 @@ def verify_internal_alert_token(
 
     s = get_settings()
     token = authorization.removeprefix("Bearer ").strip()
-    audience = str(request.base_url).rstrip("/")
+    audience = _external_base_url(request)
     try:
         claims = id_token.verify_oauth2_token(token, GoogleAuthRequest(), audience=audience)
     except Exception as exc:
