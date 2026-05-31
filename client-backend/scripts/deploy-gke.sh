@@ -19,6 +19,8 @@ PYTHON_LATEST_IMAGE="${IMAGE_BASE}/python-api:latest"
 gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 gcloud container clusters get-credentials "${CLUSTER_NAME}" --region "${REGION}" --project "${CLIENT_PROJECT_ID}"
 
+(cd "${CLIENT_DIR}/apps/java-api" && ./gradlew bootJar --no-daemon)
+
 docker build --platform linux/amd64 -t "${JAVA_IMAGE}" -t "${JAVA_LATEST_IMAGE}" "${CLIENT_DIR}/apps/java-api"
 docker build --platform linux/amd64 -t "${PYTHON_IMAGE}" -t "${PYTHON_LATEST_IMAGE}" "${CLIENT_DIR}/apps/python-api"
 
