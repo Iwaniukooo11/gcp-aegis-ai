@@ -87,26 +87,19 @@ The client stack creates the standard GKE cluster, client Artifact Registry repo
 
 ## Client Workload Deploy
 
-Build and push the mock workload image to the client Artifact Registry:
+Build, push, and deploy the mock client workloads:
 
 ```bash
-gcloud auth configure-docker europe-central2-docker.pkg.dev
-
-docker build \
-  -t europe-central2-docker.pkg.dev/aegis-client-420/aegis-client-services/aegis-error-generator:latest \
-  client/client-simulation/error-generator
-
-docker push europe-central2-docker.pkg.dev/aegis-client-420/aegis-client-services/aegis-error-generator:latest
+./client-backend/scripts/deploy-gke.sh
 ```
 
-Deploy the Kubernetes manifests:
+Run smoke checks:
 
 ```bash
-gcloud container clusters get-credentials mock-gke-standard \
-  --region europe-central2 \
-  --project aegis-client-420
-
-kubectl apply -f client/k8s/client-simulation/
+./client-backend/scripts/smoke-gke.sh
 ```
 
-The deployment uses the `:latest` tag with `imagePullPolicy: Always`, so newly started pods pull the newest pushed image.
+Full runbook:
+
+- [Client Workload Deployment](docs/client-workload-deployment.md)
+- [Live Demo Operations](docs/live-demo-operations.md)

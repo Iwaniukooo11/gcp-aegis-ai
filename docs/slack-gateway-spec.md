@@ -98,7 +98,7 @@ Users interact with Aegis AI through **app mentions** (incident troubleshooting)
    ```
    Latest incidents:
    1. INC-2026-000041 | java-api | OutOfMemoryError | ERROR | Java heap space
-   2. INC-2026-000040 | python-worker | TimeoutError | WARNING | Worker timeout
+   2. INC-2026-000040 | python-api | TimeoutError | WARNING | API checkout timeout
    ```
 6. Post the formatted text using `response_url` (preferred) or `chat.postMessage`
 
@@ -316,11 +316,11 @@ X-Request-Id: <uuid>
     {
       "incident_id": "INC-2026-000040",
       "client_project_id": "mock-client-dev",
-      "service_name": "python-worker",
+      "service_name": "python-api",
       "error_type": "TimeoutError",
       "severity": "WARNING",
       "created_at": "2026-05-20T21:11:00Z",
-      "short_message": "Worker timeout",
+      "short_message": "API checkout timeout",
       "ai_summary": "Optional one-line from analyzer"
     }
   ],
