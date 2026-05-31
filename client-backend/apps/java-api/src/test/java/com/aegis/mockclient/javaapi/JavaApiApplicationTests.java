@@ -268,6 +268,52 @@ class JavaApiApplicationTests {
 	}
 
 	@Test
+	void adminFailuresStatusReportsActiveWindows() throws Exception {
+		mockMvc.perform(post("/admin/failures/reset"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("reset"));
+
+		mockMvc.perform(get("/admin/failures"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("ok"))
+				.andExpect(jsonPath("$.pricing_latency_active").value(false))
+				.andExpect(jsonPath("$.pricing_unavailable_active").value(false));
+
+		mockMvc.perform(post("/admin/failures/pricing-latency").param("seconds", "2"))
+				.andExpect(status().isAccepted());
+		mockMvc.perform(post("/admin/failures/pricing-unavailable").param("seconds", "2"))
+				.andExpect(status().isAccepted());
+
+		mockMvc.perform(get("/admin/failures"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.pricing_latency_active").value(true))
+				.andExpect(jsonPath("$.pricing_latency_expires_at").isNotEmpty())
+				.andExpect(jsonPath("$.pricing_unavailable_active").value(true))
+				.andExpect(jsonPath("$.pricing_unavailable_expires_at").isNotEmpty());
+
+		mockMvc.perform(post("/admin/failures/reset"))
+				.andExpect(status().isOk());
+	}
+
+	@Test
+	void adminFailuresResetClearsActiveWindows() throws Exception {
+		mockMvc.perform(post("/admin/failures/pricing-latency").param("seconds", "5"))
+				.andExpect(status().isAccepted());
+		mockMvc.perform(post("/admin/failures/pricing-unavailable").param("seconds", "5"))
+				.andExpect(status().isAccepted());
+
+		mockMvc.perform(post("/admin/failures/reset"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("reset"))
+				.andExpect(jsonPath("$.pricing_latency_active").value(false))
+				.andExpect(jsonPath("$.pricing_unavailable_active").value(false));
+
+		mockMvc.perform(get("/api/pricing"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.scenario").value("JAVA_PRICING"));
+	}
+
+	@Test
 	void slowModeDelaysWorkloadButNotHealth() throws Exception {
 		mockMvc.perform(post("/chaos/slow").param("seconds", "1"))
 				.andExpect(status().isAccepted())

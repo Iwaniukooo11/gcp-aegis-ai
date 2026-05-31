@@ -45,7 +45,27 @@ public class JavaChaosState {
 		return slowSeconds;
 	}
 
+	public Instant slowExpiresAt() {
+		if (!isSlowActive()) {
+			return null;
+		}
+		return slowUntil;
+	}
+
 	public boolean isPricingFailureActive() {
 		return clock.instant().isBefore(pricingFailureUntil);
+	}
+
+	public Instant pricingFailureExpiresAt() {
+		if (!isPricingFailureActive()) {
+			return null;
+		}
+		return pricingFailureUntil;
+	}
+
+	public void reset() {
+		slowUntil = Instant.EPOCH;
+		pricingFailureUntil = Instant.EPOCH;
+		slowSeconds = 0;
 	}
 }

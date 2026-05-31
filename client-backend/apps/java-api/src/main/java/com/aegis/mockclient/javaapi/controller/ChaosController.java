@@ -6,9 +6,11 @@ import com.aegis.mockclient.javaapi.exception.ChaosDisabledException;
 import com.aegis.mockclient.javaapi.exception.InvalidChaosRequestException;
 import com.aegis.mockclient.javaapi.filter.ObservabilityAttributes;
 import com.aegis.mockclient.javaapi.model.ChaosAcceptedResponse;
+import com.aegis.mockclient.javaapi.model.FailureStatusResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Duration;
 import java.time.Instant;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -68,6 +70,17 @@ public class ChaosController {
 		return enablePricingFailure(seconds, "JAVA_PRICING_5XX");
 	}
 
+	@GetMapping("/admin/failures")
+	public FailureStatusResponse status() {
+		return statusResponse("ok");
+	}
+
+	@PostMapping("/admin/failures/reset")
+	public FailureStatusResponse reset() {
+		chaosState.reset();
+		return statusResponse("reset");
+	}
+
 	private ChaosAcceptedResponse enableSlow(int seconds, String scenario) {
 		requireChaosEnabled();
 		validateSeconds(seconds, properties.chaosMaxSlowSeconds(), scenario);
@@ -94,5 +107,14 @@ public class ChaosController {
 					"seconds must be between 1 and " + maxSeconds,
 					scenario);
 		}
+	}
+
+	private FailureStatusResponse statusResponse(String status) {
+		return new FailureStatusResponse(
+				status,
+				chaosState.isSlowActive(),
+				chaosState.slowExpiresAt(),
+				chaosState.isPricingFailureActive(),
+				chaosState.pricingFailureExpiresAt());
 	}
 }
