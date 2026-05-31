@@ -147,6 +147,15 @@ Analyzer must extract at minimum:
 - `insertId` if present
 - main message and stack trace text if present
 - labels if present
+- structured `jsonPayload.incident_candidate`
+- structured `jsonPayload.service_name`, `error_type`, `scenario`, and `stack_trace_preview` when present
+
+Analyzer only creates incidents for logs that meet both conditions:
+
+- severity is `ERROR`, `CRITICAL`, `ALERT`, or `EMERGENCY`
+- structured payload contains `incident_candidate = true`
+
+Logs that do not meet both conditions are acknowledged as ignored before receipt creation, Gemini calls, Slack handoff, or BigQuery writes.
 
 ### 4.3 Success response to Pub/Sub
 
@@ -184,17 +193,18 @@ Analyzer should produce enough structured logs to diagnose why the event became 
 1. Validate authenticated Pub/Sub push request.
 2. Parse wrapper and base64-decode the log entry.
 3. Extract normalization inputs from the raw log.
-4. Build idempotency key and check the dedupe receipt store.
-5. If the receipt shows all downstream milestones completed, skip all downstream work and return success.
-6. Generate a new human-readable `incident_id`.
-7. Run Gemini step 1 to sanitize and normalize the log into internal incident schema fields.
-8. Run Gemini step 2 to classify, explain, and recommend.
-9. Run Gemini step 3 to generate Slack-ready alert text.
-10. Create Firestore `sessions/{incident_id}`.
-11. Send alert payload to Slack Gateway.
-12. Write the final incident row to BigQuery with Slack channel/timestamp evidence when Gateway returned it.
-13. Mark each completed milestone on the Firestore receipt.
-14. Mark final terminal status and finish.
+4. Ignore non-error or non-candidate logs before any downstream write or AI call.
+5. Build idempotency key and check the dedupe receipt store.
+6. If the receipt shows all downstream milestones completed, skip all downstream work and return success.
+7. Generate a new human-readable `incident_id`.
+8. Run Gemini step 1 to sanitize and normalize the log into internal incident schema fields.
+9. Run Gemini step 2 to classify, explain, and recommend.
+10. Run Gemini step 3 to generate Slack-ready alert text.
+11. Create Firestore `sessions/{incident_id}`.
+12. Send alert payload to Slack Gateway.
+13. Write the final incident row to BigQuery with Slack channel/timestamp evidence when Gateway returned it.
+14. Mark each completed milestone on the Firestore receipt.
+15. Mark final terminal status and finish.
 
 ### 5.2 Rule ordering
 
@@ -203,6 +213,7 @@ The ordering matters.
 The implemented order is:
 
 - receipt claim or resume before any downstream side effect
+- non-candidate filtering before receipt claim
 - Firestore session creation before Slack handoff
 - Slack handoff before final BigQuery persistence
 - BigQuery persistence before final success acknowledgment

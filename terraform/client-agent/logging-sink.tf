@@ -8,10 +8,17 @@ resource "google_logging_project_sink" "error_to_hub" {
   # Point the sink directly to the Hub's Pub/Sub topic
   destination = "pubsub.googleapis.com/projects/${var.hub_project_id}/topics/${var.hub_pubsub_topic_name}"
 
-  # ONLY catch errors from Kubernetes containers (ignores normal info logs to save money)
+  # Only route structured incident candidates from the demo namespace.
   filter = <<-EOT
     severity >= ERROR
     AND resource.type="k8s_container"
+    AND resource.labels.cluster_name="${google_container_cluster.mock_gke.name}"
+    AND resource.labels.namespace_name="aegis-demo"
+    AND jsonPayload.incident_candidate=true
+    AND (
+      jsonPayload.service_name="java-api"
+      OR jsonPayload.service_name="python-api"
+    )
   EOT
 
   # This creates a unique robot email just for this sink

@@ -30,6 +30,7 @@ from app.integrations import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+ERROR_SEVERITIES = {"ERROR", "CRITICAL", "ALERT", "EMERGENCY"}
 
 
 class PubSubMessage(BaseModel):
@@ -56,24 +57,68 @@ def _generate_incident_id() -> str:
     return f"INC-{now.year}-{seq}"
 
 
+def _extract_structured_payload(log_entry: dict) -> dict:
+    payload = log_entry.get("jsonPayload")
+    if isinstance(payload, dict):
+        return payload
+
+    text_payload = log_entry.get("textPayload", "")
+    if not isinstance(text_payload, str):
+        return {}
+
+    try:
+        decoded = json.loads(text_payload)
+    except json.JSONDecodeError:
+        return {}
+    return decoded if isinstance(decoded, dict) else {}
+
+
+def _is_true(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes"}
+    return False
+
+
 def _extract_log_fields(log_entry: dict) -> dict:
     """Pull the fields Incident Analyzer needs from a Cloud Logging LogEntry."""
     resource = log_entry.get("resource", {})
     labels = resource.get("labels", {})
+    payload = _extract_structured_payload(log_entry)
+    log_name = log_entry.get("logName", "")
+    project_from_log_name = log_name.split("/")[1] if "/projects/" in log_name else ""
+    service_name = payload.get("service_name") or labels.get("container_name", labels.get("service_name", ""))
+    severity = str(log_entry.get("severity") or payload.get("severity") or "DEFAULT").upper()
+    if severity == "DEFAULT" and payload.get("severity"):
+        severity = str(payload["severity"]).upper()
     return {
         "insert_id": log_entry.get("insertId", ""),
-        "client_project_id": labels.get("project_id", log_entry.get("logName", "").split("/")[1] if "/projects/" in log_entry.get("logName", "") else ""),
+        "client_project_id": payload.get("client_project_id") or labels.get("project_id", project_from_log_name),
         "resource_type": resource.get("type", ""),
         "cluster_name": labels.get("cluster_name", ""),
         "namespace": labels.get("namespace_name", "default"),
-        "service_name": labels.get("container_name", labels.get("service_name", "")),
+        "service_name": service_name,
         "pod_name": labels.get("pod_name", ""),
-        "severity": log_entry.get("severity", "ERROR"),
+        "severity": severity,
         "timestamp": log_entry.get("timestamp", ""),
         "text_payload": log_entry.get("textPayload", ""),
-        "json_payload": log_entry.get("jsonPayload", {}),
+        "json_payload": payload,
         "labels": log_entry.get("labels", {}),
+        "incident_candidate": _is_true(payload.get("incident_candidate")),
+        "scenario": payload.get("scenario", ""),
+        "error_type": payload.get("error_type", ""),
+        "message": payload.get("message", ""),
+        "stack_trace_preview": payload.get("stack_trace_preview", ""),
     }
+
+
+def _should_process_incident(fields: dict) -> tuple[bool, str]:
+    if fields["severity"] not in ERROR_SEVERITIES:
+        return False, "severity_below_error"
+    if not fields["incident_candidate"]:
+        return False, "not_incident_candidate"
+    return True, ""
 
 
 def _is_completed_receipt(receipt: dict) -> bool:
@@ -86,15 +131,21 @@ def _is_completed_receipt(receipt: dict) -> bool:
 
 def _fallback_normalized(fields: dict) -> dict:
     return {
-        "error_type": "",
-        "short_message": fields.get("text_payload", "")[:120],
-        "stack_trace_preview": "",
+        "error_type": fields.get("error_type", ""),
+        "short_message": (fields.get("message") or fields.get("text_payload", ""))[:120],
+        "stack_trace_preview": fields.get("stack_trace_preview", ""),
         "service_name": fields.get("service_name", ""),
         "severity": fields.get("severity", "ERROR"),
     }
 
 
-def _analyze_or_load_from_receipt(log_entry: dict, fields: dict, incident_id: str, idem_key: str, receipt: dict) -> dict:
+def _analyze_or_load_from_receipt(
+    log_entry: dict,
+    fields: dict,
+    incident_id: str,
+    idem_key: str,
+    receipt: dict,
+) -> dict:
     if receipt.get("analysis_completed"):
         return {
             "normalized": receipt.get("normalized", _fallback_normalized(fields)),
@@ -161,6 +212,16 @@ async def receive_pubsub(envelope: PubSubEnvelope, request: Request) -> dict:
         return {"status": "ack_bad_payload"}
 
     fields = _extract_log_fields(log_entry)
+    should_process, ignore_reason = _should_process_incident(fields)
+    if not should_process:
+        logger.info(
+            "Ignoring log entry %s from %s: %s",
+            fields.get("insert_id", ""),
+            fields.get("client_project_id", ""),
+            ignore_reason,
+        )
+        return {"status": "ignored", "reason": ignore_reason}
+
     idem_key = firestore_sessions.build_idempotency_key(
         fields["client_project_id"],
         fields["insert_id"],

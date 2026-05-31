@@ -6,6 +6,8 @@ Covered behavior:
   - incomplete receipts resume missing downstream work
   - retry-required failures return 500 for Pub/Sub retry
 """
+import base64
+import json
 from unittest.mock import patch
 
 _NORMALIZED = {
@@ -22,6 +24,19 @@ _CLASSIFICATION = {
 }
 
 _FORMATTED_ALERT = "*INC-TEST* - java-api | ERROR | OutOfMemoryError\nAI: Heap exhausted."
+
+
+def _envelope_for(log_entry: dict) -> dict:
+    data_b64 = base64.b64encode(json.dumps(log_entry).encode()).decode()
+    return {
+        "message": {
+            "data": data_b64,
+            "messageId": "msg-ignored",
+            "publishTime": "2026-05-21T00:00:00Z",
+            "attributes": {},
+        },
+        "subscription": "projects/aegis-hub/subscriptions/test-sub",
+    }
 
 
 def _completed_receipt() -> dict:
@@ -140,6 +155,41 @@ class TestPubSubPush:
         resp = client.post("/pubsub/push", json=bad_envelope)
         assert resp.status_code == 200
         assert resp.json()["status"] == "ack_bad_payload"
+
+    def test_non_candidate_error_log_is_ignored_before_receipt(
+        self, client, ia_firestore, ia_vertex, ia_bq, ia_sg_client, sample_log_entry
+    ):
+        sample_log_entry["jsonPayload"]["incident_candidate"] = False
+        with patch.object(ia_firestore, "get_receipt") as mock_get_receipt, \
+             patch.object(ia_vertex, "normalize_log") as mock_vertex, \
+             patch.object(ia_bq, "insert_incident") as mock_bq, \
+             patch.object(ia_sg_client, "post_alert") as mock_sg:
+            resp = client.post("/pubsub/push", json=_envelope_for(sample_log_entry))
+
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ignored", "reason": "not_incident_candidate"}
+        mock_get_receipt.assert_not_called()
+        mock_vertex.assert_not_called()
+        mock_bq.assert_not_called()
+        mock_sg.assert_not_called()
+
+    def test_info_candidate_log_is_ignored_before_receipt(
+        self, client, ia_firestore, ia_vertex, ia_bq, ia_sg_client, sample_log_entry
+    ):
+        sample_log_entry["severity"] = "INFO"
+        sample_log_entry["jsonPayload"]["severity"] = "INFO"
+        with patch.object(ia_firestore, "get_receipt") as mock_get_receipt, \
+             patch.object(ia_vertex, "normalize_log") as mock_vertex, \
+             patch.object(ia_bq, "insert_incident") as mock_bq, \
+             patch.object(ia_sg_client, "post_alert") as mock_sg:
+            resp = client.post("/pubsub/push", json=_envelope_for(sample_log_entry))
+
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ignored", "reason": "severity_below_error"}
+        mock_get_receipt.assert_not_called()
+        mock_vertex.assert_not_called()
+        mock_bq.assert_not_called()
+        mock_sg.assert_not_called()
 
     def test_gemini_failure_results_in_partial_success(
         self, client, ia_firestore, ia_vertex, ia_bq, ia_sg_client, sample_pubsub_envelope
