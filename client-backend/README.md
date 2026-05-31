@@ -53,6 +53,13 @@ curl -i -H "X-Correlation-ID: local-checkout-timeout-001" http://localhost:8000/
 Expected response is HTTP 504 from `python-api`. The structured log should say
 checkout failed because `java-api` pricing exceeded the configured timeout.
 
+Scripted version:
+
+```bash
+./scripts/demo-reset-failures.sh
+./scripts/demo-checkout-latency.sh
+```
+
 ## Java Service
 
 Run the Java test suite directly:
@@ -79,6 +86,8 @@ curl -i http://localhost:8080/api/pricing
 curl -i http://localhost:8080/api/work
 curl -i -X POST "http://localhost:8080/admin/failures/pricing-latency?seconds=15"
 curl -i -X POST "http://localhost:8080/admin/failures/pricing-unavailable?seconds=60"
+curl -i http://localhost:8080/admin/failures
+curl -i -X POST "http://localhost:8080/admin/failures/reset"
 curl -i -H "X-Correlation-ID: local-test-001" http://localhost:8080/api/info
 ```
 
@@ -131,6 +140,7 @@ Run smoke checks:
 ```
 
 See [Client Workload Deployment](../docs/client-workload-deployment.md) for the full build, deploy, incident trigger, and teardown procedure.
+See [Client Incident Management](../docs/client-incident-management.md) for the incident catalog and professor demo flow.
 
 ## Local Contract
 

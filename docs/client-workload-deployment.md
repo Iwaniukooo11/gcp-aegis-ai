@@ -112,6 +112,13 @@ Expected result:
 - the message describes pricing latency, not chaos internals
 - Aegis creates the Slack, Firestore, and BigQuery incident from the checkout log
 
+Scripted primary demo:
+
+```bash
+./client-backend/scripts/demo-reset-failures.sh
+./client-backend/scripts/demo-checkout-latency.sh
+```
+
 Trigger the optional pricing-unavailable path:
 
 ```bash
@@ -122,6 +129,16 @@ curl -i -H "X-Correlation-ID: demo-downstream-001" "http://localhost:8000/api/ch
 This can create both a `java-api` HTTP 503 incident and a `python-api` checkout
 HTTP 502 incident. Use the latency path when you want one clean customer-facing
 incident during the live demo.
+
+Check or clear active `java-api` failure windows:
+
+```bash
+curl -fsS "http://localhost:8080/admin/failures"
+curl -fsS -X POST "http://localhost:8080/admin/failures/reset"
+```
+
+See [Client Incident Management](client-incident-management.md) for the full
+incident catalog, frequency policy, and professor demo guidance.
 
 ## Stop Workloads
 

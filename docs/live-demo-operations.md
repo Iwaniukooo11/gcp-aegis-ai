@@ -155,6 +155,9 @@ Check Slack:
 
 ## Live Demo Flow
 
+See [Client Incident Management](client-incident-management.md) for the
+incident catalog, frequency policy, and expected Aegis behavior.
+
 This is the primary professor demo. It simulates a real customer-facing outage:
 checkout depends on the internal pricing service, pricing becomes slow, and
 checkout times out.
@@ -180,6 +183,13 @@ Now trigger checkout with a known correlation ID:
 ```bash
 curl -i -H "X-Correlation-ID: demo-python-$(date +%s)" \
   "http://localhost:8000/api/checkout"
+```
+
+Equivalent scripted flow:
+
+```bash
+./client-backend/scripts/demo-reset-failures.sh
+./client-backend/scripts/demo-checkout-latency.sh
 ```
 
 Expected result:
@@ -252,9 +262,23 @@ curl -i -X POST "http://localhost:8080/admin/failures/pricing-unavailable?second
 curl -i -H "X-Correlation-ID: demo-downstream-001" "http://localhost:8000/api/checkout"
 ```
 
+Equivalent scripted flow:
+
+```bash
+./client-backend/scripts/demo-pricing-unavailable.sh
+./client-backend/scripts/demo-reset-failures.sh
+```
+
 This produces a realistic HTTP 502 checkout incident. It may also produce a
 separate `java-api` pricing incident because the upstream service itself returns
 HTTP 503. That is acceptable, but it is noisier than the latency demo.
+
+Check or clear active client failure windows:
+
+```bash
+curl -fsS "http://localhost:8080/admin/failures"
+curl -fsS -X POST "http://localhost:8080/admin/failures/reset"
+```
 
 Fallback direct exception smoke test:
 
