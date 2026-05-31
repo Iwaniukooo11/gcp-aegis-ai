@@ -158,6 +158,23 @@ def _average_cores_from_cumulative(points: list[dict], anchor: datetime | None) 
     return max(0.0, (v2 - v1) / dt)
 
 
+def _sum_bytes_near_anchor(series_list: list[dict], anchor: datetime | None) -> float | None:
+    total = 0.0
+    samples = 0
+    for series in series_list:
+        points = series.get("points") or []
+        point = _point_nearest_anchor(points, anchor)
+        value = _point_value(point) if point else None
+        if value == 0:
+            nonzero_point = _nearest_nonzero_point(points, anchor)
+            value = _point_value(nonzero_point) if nonzero_point else value
+        if value is None:
+            continue
+        total += value
+        samples += 1
+    return total if samples else None
+
+
 def _summarize_series(
     type_id: str,
     gcp_metric: str,
@@ -223,18 +240,16 @@ def _summarize_series(
             "series_count": len(series_list),
         }
 
-    if value_kind == "bytes" and incident_value is not None:
-        if incident_value == 0:
-            nonzero_point = _nearest_nonzero_point(all_points, anchor_time)
-            nonzero_value = _point_value(nonzero_point) if nonzero_point else None
-            if nonzero_value is not None:
-                incident_value = nonzero_value
-        mib = incident_value / (1024 * 1024)
+    if value_kind == "bytes":
+        used_bytes = _sum_bytes_near_anchor(series_list, anchor_time)
+        if used_bytes is None:
+            return {"status": "no_points", "type": type_id, "gcp_metric_type": gcp_metric}
+        mib = used_bytes / (1024 * 1024)
         return {
             "status": "ok",
             "type": type_id,
             "gcp_metric_type": gcp_metric,
-            "used_bytes": int(incident_value),
+            "used_bytes": int(used_bytes),
             "used_mib": round(mib, 2),
             "unit": "bytes",
             "display": f"{round(mib, 1)} MiB",

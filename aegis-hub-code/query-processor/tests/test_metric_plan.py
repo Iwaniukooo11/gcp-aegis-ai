@@ -35,6 +35,12 @@ class MetricSummaryTests(unittest.TestCase):
                         {"end_time": "2026-05-31T16:25:00Z", "value": 0},
                         {"end_time": "2026-05-31T16:26:00Z", "value": 7340032},
                     ]
+                },
+                {
+                    "points": [
+                        {"end_time": "2026-05-31T16:25:00Z", "value": 12288},
+                        {"end_time": "2026-05-31T16:26:00Z", "value": 12288},
+                    ]
                 }
             ]
         }
