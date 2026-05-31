@@ -4,6 +4,7 @@ These fixtures are available to every test in every sub-package because
 pytest automatically includes fixtures from parent conftest.py files.
 """
 import base64
+import copy
 import json
 
 import pytest
@@ -32,6 +33,23 @@ SAMPLE_LOG_ENTRY: dict = {
         "\tat java.base/java.util.Arrays.copyOf(Arrays.java:3745)\n"
         "\tat com.example.api.Service.processRequest(Service.java:88)"
     ),
+    "jsonPayload": {
+        "severity": "ERROR",
+        "message": "Java heap space",
+        "client_project_id": "mock-client-dev",
+        "service_name": "java-api",
+        "environment": "test",
+        "scenario": "JAVA_OUT_OF_MEMORY",
+        "error_type": "OutOfMemoryError",
+        "incident_candidate": True,
+        "correlation_id": "test-correlation-id",
+        "team": "demo",
+        "http_method": "GET",
+        "path": "/chaos/oom",
+        "status_code": 500,
+        "duration_ms": 42.0,
+        "stack_trace_preview": "java.lang.OutOfMemoryError: Java heap space",
+    },
     "timestamp": "2026-05-21T00:00:00Z",
     "labels": {"k8s-pod/app": "java-api"},
 }
@@ -103,7 +121,7 @@ def make_pubsub_envelope(log_entry: dict) -> dict:
 
 @pytest.fixture
 def sample_log_entry() -> dict:
-    return SAMPLE_LOG_ENTRY.copy()
+    return copy.deepcopy(SAMPLE_LOG_ENTRY)
 
 
 @pytest.fixture
