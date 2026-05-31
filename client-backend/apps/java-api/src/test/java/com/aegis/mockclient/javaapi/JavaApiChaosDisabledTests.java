@@ -24,4 +24,12 @@ class JavaApiChaosDisabledTests {
 				.andExpect(jsonPath("$.error.code").value("CHAOS_DISABLED"))
 				.andExpect(jsonPath("$.error.scenario").value("JAVA_CHAOS_DISABLED"));
 	}
+
+	@Test
+	void adminFailureEndpointsReturnForbiddenWhenDisabled() throws Exception {
+		mockMvc.perform(post("/admin/failures/pricing-latency").param("seconds", "1"))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.error.code").value("CHAOS_DISABLED"))
+				.andExpect(jsonPath("$.error.scenario").value("JAVA_CHAOS_DISABLED"));
+	}
 }

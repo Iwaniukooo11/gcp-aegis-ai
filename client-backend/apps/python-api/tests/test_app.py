@@ -197,7 +197,7 @@ def test_error_response_shape() -> None:
     response = error_response(
         status_code=504,
         code="DOWNSTREAM_TIMEOUT",
-        message="Timed out while calling java-api",
+        message="Checkout failed because java-api pricing request exceeded configured timeout",
         service_name="python-api",
         scenario="PYTHON_DOWNSTREAM_TIMEOUT",
         correlation_id="local-test-001",
@@ -208,7 +208,7 @@ def test_error_response_shape() -> None:
     assert json.loads(response.body) == {
         "error": {
             "code": "DOWNSTREAM_TIMEOUT",
-            "message": "Timed out while calling java-api",
+            "message": "Checkout failed because java-api pricing request exceeded configured timeout",
             "service_name": "python-api",
             "scenario": "PYTHON_DOWNSTREAM_TIMEOUT",
             "correlation_id": "local-test-001",
@@ -241,7 +241,9 @@ def test_request_log_is_single_line_json(capsys) -> None:
 
 
 def test_checkout_timeout_returns_standard_error_and_log(capsys) -> None:
-    client = make_client(java_client=FakeJavaClient(exception=DownstreamTimeoutError("timed out")))
+    client = make_client(
+        java_client=FakeJavaClient(exception=DownstreamTimeoutError("java-api pricing request exceeded configured timeout"))
+    )
 
     response = client.get("/api/checkout", headers={"X-Correlation-ID": "timeout-test-001"})
 
@@ -250,7 +252,7 @@ def test_checkout_timeout_returns_standard_error_and_log(capsys) -> None:
     assert response.json() == {
         "error": {
             "code": "DOWNSTREAM_TIMEOUT",
-            "message": "Timed out while calling java-api",
+            "message": "Checkout failed because java-api pricing request exceeded configured timeout",
             "service_name": "python-api",
             "scenario": "PYTHON_DOWNSTREAM_TIMEOUT",
             "correlation_id": "timeout-test-001",
@@ -264,11 +266,13 @@ def test_checkout_timeout_returns_standard_error_and_log(capsys) -> None:
     assert payload["error_type"] == "DownstreamTimeoutError"
     assert payload["correlation_id"] == "timeout-test-001"
     assert payload["upstream_service"] == "java-api"
-    assert payload["stack_trace_preview"] == "java-api request exceeded configured timeout"
+    assert payload["message"] == "Checkout failed because java-api pricing request exceeded configured timeout"
+    assert payload["path"] == "/api/checkout"
+    assert payload["stack_trace_preview"] == "Checkout failed because java-api pricing request exceeded configured timeout"
 
 
-def test_checkout_downstream_5xx_returns_bad_gateway() -> None:
-    client = make_client(java_client=FakeJavaClient(exception=DownstreamBadResponseError("java-api returned 503")))
+def test_checkout_downstream_5xx_returns_bad_gateway_and_clean_log(capsys) -> None:
+    client = make_client(java_client=FakeJavaClient(exception=DownstreamBadResponseError("java-api pricing returned HTTP 503")))
 
     response = client.get("/api/checkout", headers={"X-Correlation-ID": "bad-response-test-001"})
 
@@ -276,13 +280,23 @@ def test_checkout_downstream_5xx_returns_bad_gateway() -> None:
     assert response.json() == {
         "error": {
             "code": "DOWNSTREAM_BAD_RESPONSE",
-            "message": "java-api returned an invalid response",
+            "message": "Checkout failed because java-api pricing returned HTTP 503",
             "service_name": "python-api",
             "scenario": "PYTHON_DOWNSTREAM_5XX",
             "correlation_id": "bad-response-test-001",
             "error_type": "DownstreamBadResponseError",
         }
     }
+    payload = latest_request_log(capsys)
+    assert payload["severity"] == "ERROR"
+    assert payload["message"] == "Checkout failed because java-api pricing returned HTTP 503"
+    assert payload["incident_candidate"] is True
+    assert payload["scenario"] == "PYTHON_DOWNSTREAM_5XX"
+    assert payload["error_type"] == "DownstreamBadResponseError"
+    assert payload["upstream_service"] == "java-api"
+    assert payload["path"] == "/api/checkout"
+    assert "chaos" not in payload["message"].lower()
+    assert "chaos" not in payload["stack_trace_preview"].lower()
 
 
 def test_python_value_error_chaos_returns_standard_error(capsys) -> None:
@@ -379,6 +393,16 @@ def test_java_client_maps_timeout() -> None:
 
     with pytest.raises(DownstreamTimeoutError):
         anyio.run(java_client.get_pricing, "timeout-test-001")
+
+
+def test_java_client_maps_http_503_to_business_dependency_error() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={"error": {"code": "JAVA_PRICING_UNAVAILABLE"}})
+
+    java_client = JavaApiClient(Settings(JAVA_API_BASE_URL="http://java-api"), transport=httpx.MockTransport(handler))
+
+    with pytest.raises(DownstreamBadResponseError, match="java-api pricing returned HTTP 503"):
+        anyio.run(java_client.get_pricing, "pricing-503-test-001")
 
 
 def test_java_client_rejects_malformed_response() -> None:

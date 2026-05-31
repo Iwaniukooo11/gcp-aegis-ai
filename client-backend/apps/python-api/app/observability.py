@@ -10,6 +10,7 @@ def set_observability(
     *,
     scenario: str | None = None,
     error_type: str | None = None,
+    incident_message: str | None = None,
     stack_trace_preview: str | None = None,
     upstream_service: str | None = None,
 ) -> None:
@@ -17,6 +18,8 @@ def set_observability(
         request.state.scenario = scenario
     if error_type is not None:
         request.state.error_type = error_type
+    if incident_message is not None:
+        request.state.incident_message = incident_message
     if stack_trace_preview is not None:
         request.state.stack_trace_preview = stack_trace_preview
     if upstream_service is not None:

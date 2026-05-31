@@ -4,7 +4,7 @@ from app.config import Settings
 from app.context import correlation_id_var
 from app.errors import error_response
 from app.java_client import DownstreamBadResponseError, DownstreamTimeoutError, JavaApiClient
-from app.observability import set_observability, stack_trace_preview
+from app.observability import set_observability
 from app.schemas import CheckoutResponse, WorkResponse
 
 
@@ -21,6 +21,10 @@ def _java_client(request: Request) -> JavaApiClient:
     if override is not None:
         return override
     return JavaApiClient(_settings(request))
+
+
+def _checkout_failure_message(reason: str) -> str:
+    return f"Checkout failed because {reason}"
 
 
 @router.get("/work", response_model=WorkResponse)
@@ -48,17 +52,20 @@ async def checkout(request: Request) -> CheckoutResponse:
     except DownstreamTimeoutError as exc:
         scenario = "PYTHON_DOWNSTREAM_TIMEOUT"
         error_type = exc.__class__.__name__
+        reason = str(exc).strip() or "java-api pricing request exceeded configured timeout"
+        incident_message = _checkout_failure_message(reason)
         set_observability(
             request,
             scenario=scenario,
             error_type=error_type,
-            stack_trace_preview="java-api request exceeded configured timeout",
+            incident_message=incident_message,
+            stack_trace_preview=incident_message,
             upstream_service=UPSTREAM_SERVICE,
         )
         return error_response(
             status_code=504,
             code="DOWNSTREAM_TIMEOUT",
-            message="Timed out while calling java-api",
+            message=incident_message,
             service_name=settings.service_name,
             scenario=scenario,
             correlation_id=correlation_id,
@@ -67,17 +74,20 @@ async def checkout(request: Request) -> CheckoutResponse:
     except DownstreamBadResponseError as exc:
         scenario = "PYTHON_DOWNSTREAM_5XX"
         error_type = exc.__class__.__name__
+        reason = str(exc).strip() or "java-api pricing returned an invalid response"
+        incident_message = _checkout_failure_message(reason)
         set_observability(
             request,
             scenario=scenario,
             error_type=error_type,
-            stack_trace_preview=stack_trace_preview(exc),
+            incident_message=incident_message,
+            stack_trace_preview=incident_message,
             upstream_service=UPSTREAM_SERVICE,
         )
         return error_response(
             status_code=502,
             code="DOWNSTREAM_BAD_RESPONSE",
-            message="java-api returned an invalid response",
+            message=incident_message,
             service_name=settings.service_name,
             scenario=scenario,
             correlation_id=correlation_id,

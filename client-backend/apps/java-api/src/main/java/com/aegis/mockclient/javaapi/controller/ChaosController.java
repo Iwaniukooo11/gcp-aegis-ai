@@ -11,13 +11,11 @@ import java.time.Duration;
 import java.time.Instant;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/chaos")
 public class ChaosController {
 
 	private final AegisProperties properties;
@@ -28,7 +26,7 @@ public class ChaosController {
 		this.chaosState = chaosState;
 	}
 
-	@PostMapping("/exception")
+	@PostMapping("/chaos/exception")
 	public void exception(@RequestParam String type, HttpServletRequest request) {
 		requireChaosEnabled();
 		if ("null_pointer".equals(type)) {
@@ -46,22 +44,42 @@ public class ChaosController {
 		throw new InvalidChaosRequestException("Unsupported Java exception chaos type: " + type, "JAVA_EXCEPTION_INVALID_TYPE");
 	}
 
-	@PostMapping("/slow")
+	@PostMapping("/chaos/slow")
 	@ResponseStatus(HttpStatus.ACCEPTED)
 	public ChaosAcceptedResponse slow(@RequestParam int seconds) {
-		requireChaosEnabled();
-		validateSeconds(seconds, properties.chaosMaxSlowSeconds(), "JAVA_SLOW");
-		Instant expiresAt = chaosState.enableSlow(Duration.ofSeconds(seconds));
-		return new ChaosAcceptedResponse("accepted", "JAVA_SLOW", expiresAt);
+		return enableSlow(seconds, "JAVA_SLOW");
 	}
 
-	@PostMapping("/pricing-5xx")
+	@PostMapping("/admin/failures/pricing-latency")
+	@ResponseStatus(HttpStatus.ACCEPTED)
+	public ChaosAcceptedResponse pricingLatency(@RequestParam int seconds) {
+		return enableSlow(seconds, "JAVA_PRICING_LATENCY");
+	}
+
+	@PostMapping("/chaos/pricing-5xx")
 	@ResponseStatus(HttpStatus.ACCEPTED)
 	public ChaosAcceptedResponse pricing5xx(@RequestParam int seconds) {
+		return enablePricingFailure(seconds, "JAVA_PRICING_5XX");
+	}
+
+	@PostMapping("/admin/failures/pricing-unavailable")
+	@ResponseStatus(HttpStatus.ACCEPTED)
+	public ChaosAcceptedResponse pricingUnavailable(@RequestParam int seconds) {
+		return enablePricingFailure(seconds, "JAVA_PRICING_5XX");
+	}
+
+	private ChaosAcceptedResponse enableSlow(int seconds, String scenario) {
 		requireChaosEnabled();
-		validateSeconds(seconds, properties.chaosMaxPricing5xxSeconds(), "JAVA_PRICING_5XX");
+		validateSeconds(seconds, properties.chaosMaxSlowSeconds(), scenario);
+		Instant expiresAt = chaosState.enableSlow(Duration.ofSeconds(seconds));
+		return new ChaosAcceptedResponse("accepted", scenario, expiresAt);
+	}
+
+	private ChaosAcceptedResponse enablePricingFailure(int seconds, String scenario) {
+		requireChaosEnabled();
+		validateSeconds(seconds, properties.chaosMaxPricing5xxSeconds(), scenario);
 		Instant expiresAt = chaosState.enablePricingFailure(Duration.ofSeconds(seconds));
-		return new ChaosAcceptedResponse("accepted", "JAVA_PRICING_5XX", expiresAt);
+		return new ChaosAcceptedResponse("accepted", scenario, expiresAt);
 	}
 
 	private void requireChaosEnabled() {

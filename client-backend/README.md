@@ -43,6 +43,16 @@ curl -i http://localhost:8000/api/checkout
 curl -i -H "X-Correlation-ID: local-test-001" http://localhost:8000/api/info
 ```
 
+The main demo incident is a checkout dependency failure. Start `java-api`, then:
+
+```bash
+curl -i -X POST "http://localhost:8080/admin/failures/pricing-latency?seconds=15"
+curl -i -H "X-Correlation-ID: local-checkout-timeout-001" http://localhost:8000/api/checkout
+```
+
+Expected response is HTTP 504 from `python-api`. The structured log should say
+checkout failed because `java-api` pricing exceeded the configured timeout.
+
 ## Java Service
 
 Run the Java test suite directly:
@@ -67,6 +77,8 @@ curl -i http://localhost:8080/healthz/ready
 curl -i http://localhost:8080/api/info
 curl -i http://localhost:8080/api/pricing
 curl -i http://localhost:8080/api/work
+curl -i -X POST "http://localhost:8080/admin/failures/pricing-latency?seconds=15"
+curl -i -X POST "http://localhost:8080/admin/failures/pricing-unavailable?seconds=60"
 curl -i -H "X-Correlation-ID: local-test-001" http://localhost:8080/api/info
 ```
 

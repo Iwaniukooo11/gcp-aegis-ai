@@ -48,8 +48,11 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
         is_error = response.status_code >= 500
         log_method = LOGGER.error if is_error else LOGGER.info
         error_type = getattr(request.state, "error_type", None)
+        incident_message = getattr(request.state, "incident_message", None)
         log_message = (
-            f"{error_type}: {request.method} {request.url.path} failed"
+            incident_message
+            if is_error and incident_message
+            else f"{error_type}: {request.method} {request.url.path} failed"
             if is_error and error_type
             else (
                 f"HTTP {response.status_code}: {request.method} {request.url.path}"

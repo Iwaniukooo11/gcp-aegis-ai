@@ -28,9 +28,15 @@ response = model.generate_content([system_prompt, user_prompt], generation_confi
 
 Before Slack handoff and final BigQuery insert, a `sessions/{incident_id}`
 document is created with initial `messages: [{"role": "model", "content": "..."}]`,
-`pod_name`, and `log_timestamp` from the source Cloud Logging entry. This is the
-conversation history seed that Query Processor appends user turns to later and
-the pod/time anchor for Cloud Monitoring queries.
+`pod_name`, `log_timestamp`, `scenario`, `short_message`, `stack_trace_preview`,
+`upstream_service`, `http_method`, `path`, and `status_code` from the source
+Cloud Logging entry. This is the conversation history seed that Query Processor
+appends user turns to later and the pod/time anchor for Cloud Monitoring
+queries.
+
+For the checkout demo, `path=/api/checkout` and `upstream_service=java-api`
+are treated as a business dependency failure. Alerts should describe checkout
+impact and pricing dependency symptoms, not the internal failure trigger.
 
 ## Incident ID format
 

@@ -155,6 +155,13 @@ def plan_metrics(
         "namespace": session.get("namespace"),
         "pod_name": session.get("pod_name"),
         "error_type": session.get("error_type"),
+        "scenario": session.get("scenario"),
+        "short_message": session.get("short_message"),
+        "stack_trace_preview": session.get("stack_trace_preview"),
+        "upstream_service": session.get("upstream_service"),
+        "http_method": session.get("http_method"),
+        "path": session.get("path"),
+        "status_code": session.get("status_code"),
         "ai_summary": session.get("ai_summary"),
         "user_question": user_question,
         "allowlisted_metric_types": list(ALLOWED_METRIC_TYPE_IDS),
@@ -203,6 +210,11 @@ def analyze_metrics(
         "When metric_results contain CPU or memory series with points, describe utilization in "
         "root_cause_candidates or additional_signals_needed; do not claim metrics are missing "
         "when data is present. "
+        "Use upstream_service, path, short_message, and ai_summary from incident context. "
+        "If CPU and memory values are low or normal, say they do not support resource exhaustion "
+        "as the cause. "
+        "Do not describe checkout dependency failures as chaos unless the incident context explicitly "
+        "says the failing request path was /chaos/*. "
         "Return ONLY valid JSON with keys: "
         "root_cause_candidates (list of strings, most likely first), "
         "confidence (high|medium|low), "
@@ -216,6 +228,13 @@ def analyze_metrics(
         "incident_id": session.get("incident_id"),
         "service_name": session.get("service_name"),
         "error_type": session.get("error_type"),
+        "scenario": session.get("scenario"),
+        "short_message": session.get("short_message"),
+        "stack_trace_preview": session.get("stack_trace_preview"),
+        "upstream_service": session.get("upstream_service"),
+        "http_method": session.get("http_method"),
+        "path": session.get("path"),
+        "status_code": session.get("status_code"),
         "ai_summary": session.get("ai_summary"),
         "metric_plan": metric_plan,
         "metric_results": metric_results,
@@ -267,6 +286,8 @@ def format_slack_response(
         "Be concise — max 6 lines. "
         "Use metric_summary.display and utilization_percent only; never invent CPU core counts. "
         "List root cause candidates from analysis. "
+        "When metrics are normal, present that as evidence against CPU or memory pressure, "
+        "not as proof that the incident was synthetic. "
         "Return ONLY the Slack mrkdwn string."
     )
     model = GenerativeModel(
@@ -302,6 +323,7 @@ def format_analysis_only(
     system_prompt = (
         "Format root cause candidates for Slack (mrkdwn). Max 5 lines. "
         "Do not repeat or contradict metric_facts. Do not state CPU/memory numbers. "
+        "Do not call the incident chaos unless analysis explicitly says the failing path was /chaos/*. "
         "Return ONLY mrkdwn."
     )
     model = GenerativeModel(

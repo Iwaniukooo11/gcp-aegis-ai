@@ -97,20 +97,31 @@ Manual port-forward:
 kubectl -n aegis-demo port-forward svc/python-api 8000:8000
 ```
 
-Trigger a Python incident:
-
-```bash
-curl -i -H "X-Correlation-ID: demo-python-001" \
-  "http://localhost:8000/chaos/exception?type=value_error"
-```
-
-Trigger a downstream Java incident path:
+Trigger the primary checkout/pricing incident path:
 
 ```bash
 kubectl -n aegis-demo port-forward svc/java-api 8080:8080
-curl -i -X POST "http://localhost:8080/chaos/pricing-5xx?seconds=60"
+curl -i -X POST "http://localhost:8080/admin/failures/pricing-latency?seconds=15"
+curl -i -H "X-Correlation-ID: demo-checkout-timeout-001" "http://localhost:8000/api/checkout"
+```
+
+Expected result:
+
+- `python-api` returns HTTP 504 from `/api/checkout`
+- the structured error log names `java-api` as `upstream_service`
+- the message describes pricing latency, not chaos internals
+- Aegis creates the Slack, Firestore, and BigQuery incident from the checkout log
+
+Trigger the optional pricing-unavailable path:
+
+```bash
+curl -i -X POST "http://localhost:8080/admin/failures/pricing-unavailable?seconds=60"
 curl -i -H "X-Correlation-ID: demo-downstream-001" "http://localhost:8000/api/checkout"
 ```
+
+This can create both a `java-api` HTTP 503 incident and a `python-api` checkout
+HTTP 502 incident. Use the latency path when you want one clean customer-facing
+incident during the live demo.
 
 ## Stop Workloads
 
