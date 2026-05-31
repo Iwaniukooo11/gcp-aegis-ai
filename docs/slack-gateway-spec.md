@@ -23,7 +23,7 @@ The **Slack Gateway** is a public Cloud Run service in the **Aegis Hub** project
 - No direct access to Firestore, BigQuery, Cloud Monitoring, or Vertex AI
 - No business logic (metric analysis, incident processing, AI queries)
 - No session state management
-- No authentication logic beyond Slack (MVP: signing verification skipped)
+- No business authentication logic beyond Slack HMAC verification and internal caller verification
 
 ```mermaid
 flowchart LR
@@ -47,8 +47,8 @@ flowchart LR
 | ------------------ | -------------------------------------------------------------------------- |
 | **Type**           | Cloud Run (stateless, autoscaling)                                         |
 | **Ingress**        | `INGRESS_TRAFFIC_ALL` (public endpoint for Slack webhooks)                 |
-| **IAM (inbound)**  | `allUsers` (Slack Events API needs public access)                          |
-| **IAM (outbound)** | Service account `aegis-bot-sa` with `roles/run.invoker` on Query Processor |
+| **IAM (inbound)**  | `allUsers` (Slack Events API needs public access); app verifies Slack HMAC and internal Google ID token callers |
+| **IAM (outbound)** | Service account `aegis-slack-gateway-sa` with `roles/run.invoker` on Query Processor |
 | **Language**       | Python 3.11+                                                               |
 | **Framework**      | FastAPI                                                                    |
 | **State**          | Stateless (no database, cache, or in-memory session storage)               |
@@ -125,7 +125,7 @@ When a new incident is detected and stored in BigQuery, Analyzer creates initial
 
 **Purpose:** Receive Slack Events API callbacks (primarily `app_mention`)
 
-**Authentication (MVP):** None (Slack signing secret verification skipped for MVP; can be added later)
+**Authentication:** Slack request signing secret. The Gateway verifies `X-Slack-Request-Timestamp` and `X-Slack-Signature` before parsing the JSON body.
 
 **Request body (Slack `app_mention` event example):**
 
@@ -170,7 +170,7 @@ When a new incident is detected and stored in BigQuery, Analyzer creates initial
 
 **Purpose:** Handle **`/aegis-latest-incidents`** only (MVP)
 
-**Authentication (MVP):** None (Slack signing secret verification skipped for MVP; can be added later)
+**Authentication:** Slack request signing secret. The Gateway verifies `X-Slack-Request-Timestamp` and `X-Slack-Signature` before parsing the form body.
 
 **Request body (Slack `application/x-www-form-urlencoded` example):**
 
@@ -207,9 +207,9 @@ token=...
 
 **Purpose:** Post incident alerts to Slack on behalf of Incident Analyzer
 
-**Authentication:** Google Cloud Run OIDC identity token (audience = Slack Gateway URL)
+**Authentication:** Google OIDC identity token with audience = Slack Gateway URL. Because the Slack Gateway Cloud Run service is public for Slack ingress, this endpoint also verifies the caller service-account claim in application code.
 
-**IAM:** `aegis-bot-sa` service account with `roles/run.invoker` on Slack Gateway
+**IAM:** `aegis-incident-analyzer-sa` service account with `roles/run.invoker` on Slack Gateway
 
 **Request body:**
 
@@ -496,10 +496,10 @@ slack_client.chat_postMessage(
 | Variable                   | Source           | Purpose                                                      | Required |
 | -------------------------- | ---------------- | ------------------------------------------------------------ | -------- |
 | `SLACK_BOT_TOKEN`          | Secret Manager   | OAuth token for Slack Web API (`chat.postMessage`)           | Yes      |
-| `SLACK_SIGNING_SECRET`     | Secret Manager   | Verify Slack request signatures (MVP: not used)              | No (MVP) |
+| `SLACK_SIGNING_SECRET`     | Secret Manager   | Verify Slack request signatures                              | Yes      |
 | `QUERY_PROCESSOR_URL`      | Terraform output | Cloud Run URL for Query Processor                            | Yes      |
-| `GCP_PROJECT`              | Hub project ID   | For logging, OIDC token audience                             | Yes      |
-| `GCP_REGION`               | Region           | For logging                                                  | Yes      |
+| `SLACK_GATEWAY_URL`        | Terraform output | Expected audience for Incident Analyzer Google ID tokens      | Yes      |
+| `INTERNAL_ALERT_ALLOWED_SERVICE_ACCOUNT` | Terraform service account | Exact service account allowed to call alert relay | Yes |
 | `ENVIRONMENT`              | `dev` / `prod`   | Logging labels                                               | Yes      |
 | `DEFAULT_SLACK_CHANNEL_ID` | Manual config    | Alert channel for Incident Analyzer posts (Analyzer never sends `channel_id`) | Yes      |
 
@@ -517,9 +517,7 @@ slack_client.chat_postMessage(
 
 ### 7.1 Inbound from Slack (public endpoint)
 
-**Current (MVP):** No verification (accept all POST requests to `/slack/events`)
-
-**Future (production):** Verify Slack signing secret:
+**Current:** Verify Slack signing secret:
 
 1. Extract `X-Slack-Signature` and `X-Slack-Request-Timestamp` headers
 2. Compute HMAC-SHA256 of `v0:{timestamp}:{body}` using `SLACK_SIGNING_SECRET`
@@ -530,15 +528,15 @@ slack_client.chat_postMessage(
 
 **Method:** Google Cloud Run OIDC identity token
 
-**IAM:** Incident Analyzer service account (`aegis-bot-sa`) must have `roles/run.invoker` on Slack Gateway
+**IAM:** Incident Analyzer service account (`aegis-incident-analyzer-sa`) must have `roles/run.invoker` on Slack Gateway
 
-**Verification:** FastAPI middleware validates token audience matches Gateway URL
+**Verification:** FastAPI dependency validates token audience matches Gateway URL and `email` matches `INTERNAL_ALERT_ALLOWED_SERVICE_ACCOUNT`
 
 ### 7.3 Outbound to Query Processor
 
 **Method:** Google Cloud Run OIDC identity token
 
-**IAM:** Slack Gateway service account (`aegis-bot-sa`) must have `roles/run.invoker` on Query Processor
+**IAM:** Slack Gateway service account (`aegis-slack-gateway-sa`) must have `roles/run.invoker` on Query Processor
 
 **Implementation:** Use `google.auth.transport.requests` to obtain identity token with audience = Query Processor URL
 
@@ -725,7 +723,6 @@ resource "google_cloud_run_v2_service" "slack_gateway" {
 
 | Feature                                             | Priority | Notes                                            |
 | --------------------------------------------------- | -------- | ------------------------------------------------ |
-| Slack signing secret verification                   | Medium   | Security hardening for production                |
 | Additional slash commands (`/aegis status`, `/aegis help`) | Low | Only `/aegis-latest-incidents` in MVP |
 | Rich Slack Block Kit formatting                     | Low      | Replace plain text with interactive blocks       |
 | Request deduplication (by `X-Request-Id`)           | Low      | Prevent duplicate Query Processor calls on retry |

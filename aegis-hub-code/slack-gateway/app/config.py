@@ -12,12 +12,22 @@ class Settings(BaseSettings):
     """
 
     slack_bot_token: str
+    slack_signing_secret: str
     query_processor_url: str
     default_slack_channel_id: str
+    slack_gateway_url: str
+    internal_alert_allowed_service_account: str
     incident_analyzer_url: str = ""
     environment: str = "dev"
 
-    @field_validator("slack_bot_token", "query_processor_url", "default_slack_channel_id")
+    @field_validator(
+        "slack_bot_token",
+        "slack_signing_secret",
+        "query_processor_url",
+        "default_slack_channel_id",
+        "slack_gateway_url",
+        "internal_alert_allowed_service_account",
+    )
     @classmethod
     def must_not_be_empty(cls, v: str) -> str:
         if not v.strip():

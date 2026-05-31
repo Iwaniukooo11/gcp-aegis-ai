@@ -6,10 +6,11 @@ response_url in a background task.
 """
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from fastapi.responses import JSONResponse
 
 from app.integrations import query_processor_client, slack_web_api
+from app.security import verify_slack_signature
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ async def _fetch_and_post(limit: int, response_url: str) -> None:
     slack_web_api.post_to_response_url(response_url, text)
 
 
-@router.post("/commands")
+@router.post("/commands", dependencies=[Depends(verify_slack_signature)])
 async def slack_commands(request: Request, background_tasks: BackgroundTasks) -> JSONResponse:
     """Handle Slack slash command payloads."""
     form = await request.form()

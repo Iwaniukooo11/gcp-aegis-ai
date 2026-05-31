@@ -11,11 +11,12 @@ import asyncio
 import logging
 import re
 
-from fastapi import APIRouter, BackgroundTasks, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.integrations import query_processor_client, slack_web_api
+from app.security import verify_slack_signature
 from app.slack_event_dedup import is_duplicate_event
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ async def _handle_mention(
     slack_web_api.post_message(channel=channel, text=slack_text, thread_ts=thread_ts)
 
 
-@router.post("/events")
+@router.post("/events", dependencies=[Depends(verify_slack_signature)])
 async def slack_events(request: Request, background_tasks: BackgroundTasks) -> JSONResponse:
     """Receive Slack Events API payloads."""
     body = await request.json()
