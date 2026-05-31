@@ -144,7 +144,14 @@ No request body. No Firestore. No Gemini.
 ### 4.3 BigQuery contract
 
 - **Dataset / table:** `aegis_incidents.incidents` (env: `BIGQUERY_DATASET`, `BIGQUERY_INCIDENTS_TABLE`).
-- **Filter:** `terminal_status = 'SUCCESS'` only.
+- **Filter:** completed application incidents only:
+  - `terminal_status = 'SUCCESS'`
+  - severity is `ERROR`, `CRITICAL`, `ALERT`, or `EMERGENCY`
+  - `error_type` is present
+  - workload has `k8s-pod/app_kubernetes_io/part-of = aegis-ai` or is a known
+    demo workload service (`java-api`, `python-api`, `python-worker`) for
+    legacy rows created before the final label set
+  - duplicate `incident_id` rows are collapsed to the newest row
 - **Order:** `created_at DESC`.
 - **Limit:** query parameter (default 10).
 
@@ -161,7 +168,19 @@ SELECT
   short_message,
   ai_summary
 FROM `{hub_project}.aegis_incidents.incidents`
-WHERE terminal_status = 'SUCCESS'
+WHERE
+  terminal_status = 'SUCCESS'
+  AND severity IN ('ERROR', 'CRITICAL', 'ALERT', 'EMERGENCY')
+  AND error_type IS NOT NULL
+  AND TRIM(error_type) != ''
+  AND (
+    JSON_VALUE(labels_json, '$."k8s-pod/app_kubernetes_io/part-of"') = 'aegis-ai'
+    OR service_name IN ('java-api', 'python-api', 'python-worker')
+  )
+QUALIFY ROW_NUMBER() OVER (
+  PARTITION BY incident_id
+  ORDER BY created_at DESC
+) = 1
 ORDER BY created_at DESC
 LIMIT @limit
 ```
