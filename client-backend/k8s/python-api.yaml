@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: python-api
+  labels:
+    app.kubernetes.io/name: python-api
+    app.kubernetes.io/part-of: aegis-ai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: python-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: python-api
+        app.kubernetes.io/part-of: aegis-ai
+    spec:
+      containers:
+        - name: python-api
+          image: europe-central2-docker.pkg.dev/aegis-client-420/aegis-client-services/python-api:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: aegis-client-config
+          env:
+            - name: SERVICE_NAME
+              value: python-api
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /healthz/live
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: python-api
+  labels:
+    app.kubernetes.io/name: python-api
+    app.kubernetes.io/part-of: aegis-ai
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: python-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
