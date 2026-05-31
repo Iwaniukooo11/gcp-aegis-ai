@@ -6,11 +6,19 @@ services. No Firestore, BigQuery, Vertex AI, or Cloud Monitoring access.
 ## Responsibilities
 
 - `POST /slack/events` — Slack Events API: handle `url_verification` and
-  `app_mention`; return 200 immediately; process QP call asynchronously
+  `app_mention`; return 200 immediately; process QP call asynchronously in a
+  detached task
 - `POST /slack/commands` — `/aegis-latest-incidents` slash command; ack within
-  3s and post full result via response_url
+  3s and post full result via response_url from a detached task
 - `POST /v1/internal/incidents/alert` — receive alert payload from Incident
   Analyzer and post to `DEFAULT_SLACK_CHANNEL_ID`
+
+Slack ingress handlers must not use FastAPI `BackgroundTasks` for slow Query
+Processor calls. Cloud Run still counts that work in request latency. The
+service uses tracked `asyncio` tasks and offloads blocking HTTP calls to worker
+threads so Slack receives the acknowledgement first. Terraform keeps Cloud Run
+CPU allocated after the response (`cpu_idle = false`) so the detached task can
+finish reliably.
 
 ## Message parsing
 

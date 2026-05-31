@@ -9,6 +9,7 @@ Paths covered:
   - Non-app_mention event type (silently ignored)
   - Unknown top-level event type (silently ignored)
 """
+import asyncio
 from unittest.mock import patch
 
 
@@ -41,13 +42,8 @@ class TestUrlVerification:
 
 
 class TestAppMention:
-    def test_happy_path_calls_qp_and_posts_to_slack(self, client, sg_qp_client, sg_slack_web_api, signed_slack_json):
-        qp_result = {
-            "slack_text": "Memory is high because Java heap is exhausted. Recommendation: increase limits.",
-            "timestamp": "2026-05-21T00:00:00+00:00",
-        }
-        with patch.object(sg_qp_client, "query_incident", return_value=qp_result) as mock_qp, \
-             patch.object(sg_slack_web_api, "post_message", return_value={"ok": True, "ts": "1.1"}) as mock_post:
+    def test_happy_path_schedules_background_work(self, client, sg_slack_events, signed_slack_json):
+        with patch.object(sg_slack_events, "_schedule_mention") as mock_schedule:
             resp = client.post(
                 "/slack/events",
                 **signed_slack_json(_make_mention_event("<@UBOT> INC-2026-000042 why is memory spiking")),
@@ -55,39 +51,44 @@ class TestAppMention:
 
         assert resp.status_code == 200
         assert resp.json() == {"ok": True}
+        mock_schedule.assert_called_once_with("INC-2026-000042", "why is memory spiking", "C_TEST", "111.111")
+
+    def test_handle_mention_calls_qp_and_posts_to_slack(
+        self, sg_slack_events, sg_qp_client, sg_slack_web_api
+    ):
+        qp_result = {
+            "slack_text": "Memory is high because Java heap is exhausted. Recommendation: increase limits.",
+            "timestamp": "2026-05-21T00:00:00+00:00",
+        }
+        with patch.object(sg_qp_client, "query_incident", return_value=qp_result) as mock_qp, \
+             patch.object(sg_slack_web_api, "post_message", return_value={"ok": True, "ts": "1.1"}) as mock_post:
+            asyncio.run(sg_slack_events._handle_mention("INC-2026-000042", "why is memory spiking", "C_TEST", "111.111"))
+
         mock_qp.assert_called_once_with("INC-2026-000042", "why is memory spiking")
         mock_post.assert_called_once()
         assert mock_post.call_args.kwargs["text"] == qp_result["slack_text"]
         assert mock_post.call_args.kwargs["channel"] == "C_TEST"
 
-    def test_no_incident_id_posts_error_hint(self, client, sg_qp_client, sg_slack_web_api, signed_slack_json):
+    def test_no_incident_id_posts_error_hint(self, sg_slack_events, sg_qp_client, sg_slack_web_api):
         with patch.object(sg_qp_client, "query_incident") as mock_qp, \
              patch.object(sg_slack_web_api, "post_message", return_value={"ok": True}) as mock_post:
-            resp = client.post(
-                "/slack/events",
-                **signed_slack_json(_make_mention_event("<@UBOT> what is the current status")),
-            )
+            asyncio.run(sg_slack_events._handle_mention(None, "what is the current status", "C_TEST", "111.111"))
 
-        assert resp.status_code == 200
         mock_qp.assert_not_called()
         mock_post.assert_called_once()
         posted_text: str = mock_post.call_args.kwargs["text"]
         assert "INC-" in posted_text
 
-    def test_qp_failure_posts_fallback_error_to_slack(self, client, sg_qp_client, sg_slack_web_api, signed_slack_json):
+    def test_qp_failure_posts_fallback_error_to_slack(self, sg_slack_events, sg_qp_client, sg_slack_web_api):
         with patch.object(sg_qp_client, "query_incident", side_effect=RuntimeError("QP unreachable")), \
              patch.object(sg_slack_web_api, "post_message", return_value={"ok": True}) as mock_post:
-            resp = client.post(
-                "/slack/events",
-                **signed_slack_json(_make_mention_event("<@UBOT> INC-2026-000042 help")),
-            )
+            asyncio.run(sg_slack_events._handle_mention("INC-2026-000042", "help", "C_TEST", "111.111"))
 
-        assert resp.status_code == 200
         mock_post.assert_called_once()
         assert "INC-2026-000042" in mock_post.call_args.kwargs["text"]
 
     def test_session_not_found_is_retried_before_success(
-        self, client, sg_qp_client, sg_slack_events, sg_slack_web_api, signed_slack_json
+        self, sg_qp_client, sg_slack_events, sg_slack_web_api
     ):
         session_error = sg_qp_client.QueryProcessorError(404, "SESSION_NOT_FOUND")
         with patch.object(sg_slack_events, "SESSION_RETRY_DELAY_S", 0), \
@@ -97,40 +98,29 @@ class TestAppMention:
                  side_effect=[session_error, {"slack_text": "Session is ready now."}],
              ) as mock_qp, \
              patch.object(sg_slack_web_api, "post_message", return_value={"ok": True}) as mock_post:
-            resp = client.post(
-                "/slack/events",
-                **signed_slack_json(_make_mention_event("<@UBOT> INC-2026-000042 what happened")),
-            )
+            asyncio.run(sg_slack_events._handle_mention("INC-2026-000042", "what happened", "C_TEST", "111.111"))
 
-        assert resp.status_code == 200
         assert mock_qp.call_count == 2
         assert mock_post.call_args.kwargs["text"] == "Session is ready now."
 
-    def test_empty_question_posts_usage_hint(self, client, sg_qp_client, sg_slack_web_api, signed_slack_json):
+    def test_empty_question_posts_usage_hint(self, sg_slack_events, sg_qp_client, sg_slack_web_api):
         with patch.object(sg_qp_client, "query_incident") as mock_qp, \
              patch.object(sg_slack_web_api, "post_message", return_value={"ok": True}) as mock_post:
-            resp = client.post(
-                "/slack/events",
-                **signed_slack_json(_make_mention_event("<@UBOT> INC-2026-000042")),
-            )
+            asyncio.run(sg_slack_events._handle_mention("INC-2026-000042", "", "C_TEST", "111.111"))
 
-        assert resp.status_code == 200
         mock_qp.assert_not_called()
         assert "Please include a question" in mock_post.call_args.kwargs["text"]
 
-    def test_thread_ts_forwarded_to_slack(self, client, sg_qp_client, sg_slack_web_api, signed_slack_json):
+    def test_thread_ts_forwarded_to_slack(self, sg_slack_events, sg_qp_client, sg_slack_web_api):
         with patch.object(sg_qp_client, "query_incident", return_value={"slack_text": "All clear."}), \
              patch.object(sg_slack_web_api, "post_message", return_value={"ok": True}) as mock_post:
-            resp = client.post(
-                "/slack/events",
-                **signed_slack_json(_make_mention_event("<@UBOT> INC-2026-000042 status", thread_ts="555.555")),
-            )
+            asyncio.run(sg_slack_events._handle_mention("INC-2026-000042", "status", "C_TEST", "555.555"))
 
-        assert resp.status_code == 200
         assert mock_post.call_args.kwargs.get("thread_ts") == "555.555"
 
-    def test_non_app_mention_event_ignored(self, client, sg_qp_client, sg_slack_web_api, signed_slack_json):
+    def test_non_app_mention_event_ignored(self, client, sg_qp_client, sg_slack_events, sg_slack_web_api, signed_slack_json):
         with patch.object(sg_qp_client, "query_incident") as mock_qp, \
+             patch.object(sg_slack_events, "_schedule_mention") as mock_schedule, \
              patch.object(sg_slack_web_api, "post_message") as mock_post:
             resp = client.post(
                 "/slack/events",
@@ -139,6 +129,7 @@ class TestAppMention:
 
         assert resp.status_code == 200
         mock_qp.assert_not_called()
+        mock_schedule.assert_not_called()
         mock_post.assert_not_called()
 
     def test_unknown_top_level_event_type_ignored(self, client, signed_slack_json):
