@@ -1,13 +1,10 @@
-"""E2E tests for POST /pubsub/push — Pub/Sub push subscription handler.
+"""E2E tests for POST /pubsub/push.
 
-Paths covered:
-  - Full success pipeline: Gemini → BigQuery → Firestore → Slack Gateway
-  - Duplicate delivery: existing receipt detected, all downstream steps skipped
-  - Bad/undecodeable base64 payload: acked with 200 (no DLQ loop)
-  - Gemini enrichment failure: PARTIAL_SUCCESS with fallback text posted to SG
-  - BigQuery insert failure: 500 returned so Pub/Sub retries
-  - Slack Gateway handoff failure: 500 returned so Pub/Sub retries
-    (dedup receipt prevents double BigQuery write on retry)
+Covered behavior:
+  - first delivery creates receipt, session, Slack alert, and BigQuery row
+  - completed duplicate delivery is skipped
+  - incomplete receipts resume missing downstream work
+  - retry-required failures return 500 for Pub/Sub retry
 """
 from unittest.mock import patch
 
@@ -24,7 +21,40 @@ _CLASSIFICATION = {
     "ai_recommendation": "Increase JVM heap limits and review for memory leaks.",
 }
 
-_FORMATTED_ALERT = "*\U0001f6a8 INC-TEST* — java-api | ERROR | OutOfMemoryError\nAI: Heap exhausted."
+_FORMATTED_ALERT = "*INC-TEST* - java-api | ERROR | OutOfMemoryError\nAI: Heap exhausted."
+
+
+def _completed_receipt() -> dict:
+    return {
+        "incident_id": "INC-2026-000042",
+        "analysis_completed": True,
+        "bigquery_persisted": True,
+        "session_created": True,
+        "slack_handoff_succeeded": True,
+        "slack_channel": "C_TEST_ALERTS",
+        "slack_message_ts": "1.1",
+        "first_alert_sent_at": "2026-05-21T00:00:01+00:00",
+    }
+
+
+def _analysis_receipt(**overrides: object) -> dict:
+    receipt = {
+        "incident_id": "INC-2026-000042",
+        "analysis_completed": True,
+        "normalized": _NORMALIZED,
+        "classification": _CLASSIFICATION,
+        "formatted_message": _FORMATTED_ALERT,
+        "terminal_status": "SUCCESS",
+        "terminal_failure_reason": "",
+        "bigquery_persisted": False,
+        "session_created": True,
+        "slack_handoff_succeeded": True,
+        "slack_channel": "C_TEST_ALERTS",
+        "slack_message_ts": "1.1",
+        "first_alert_sent_at": "2026-05-21T00:00:01+00:00",
+    }
+    receipt.update(overrides)
+    return receipt
 
 
 class TestPubSubPush:
@@ -32,13 +62,14 @@ class TestPubSubPush:
         self, client, ia_firestore, ia_vertex, ia_bq, ia_sg_client, sample_pubsub_envelope
     ):
         with patch.object(ia_firestore, "get_receipt", return_value=None), \
-             patch.object(ia_firestore, "create_receipt"), \
-             patch.object(ia_firestore, "update_receipt"), \
-             patch.object(ia_firestore, "create_session"), \
+             patch.object(ia_firestore, "create_receipt", return_value=True), \
+             patch.object(ia_firestore, "update_receipt") as mock_update_receipt, \
+             patch.object(ia_firestore, "create_session") as mock_create_session, \
              patch.object(ia_vertex, "normalize_log", return_value=_NORMALIZED), \
              patch.object(ia_vertex, "classify_incident", return_value=_CLASSIFICATION), \
              patch.object(ia_vertex, "format_slack_alert", return_value=_FORMATTED_ALERT), \
-             patch.object(ia_bq, "insert_incident"), \
+             patch.object(ia_bq, "incident_exists_by_idempotency_key", return_value=False), \
+             patch.object(ia_bq, "insert_incident") as mock_insert_incident, \
              patch.object(ia_sg_client, "post_alert", return_value={"ok": True, "ts": "1.1"}):
             resp = client.post("/pubsub/push", json=sample_pubsub_envelope)
 
@@ -46,13 +77,23 @@ class TestPubSubPush:
         body = resp.json()
         assert body["status"] == "SUCCESS"
         assert body["incident_id"].startswith("INC-")
+        mock_create_session.assert_called_once()
+        mock_insert_incident.assert_called_once()
+        row = mock_insert_incident.call_args.args[0]
+        assert row["slack_channel"] == "C_TEST_ALERTS"
+        assert row["slack_message_ts"] == "1.1"
+        assert row["terminal_status"] == "SUCCESS"
+        assert mock_insert_incident.call_args.kwargs["insert_id"]
+        updates = [call.args[1] for call in mock_update_receipt.call_args_list]
+        assert any(update.get("analysis_completed") is True for update in updates)
+        assert any(update.get("session_created") is True for update in updates)
+        assert any(update.get("slack_handoff_succeeded") is True for update in updates)
+        assert any(update.get("bigquery_persisted") is True for update in updates)
 
-    def test_duplicate_delivery_skipped(
+    def test_completed_duplicate_delivery_skipped(
         self, client, ia_firestore, ia_vertex, ia_bq, ia_sg_client, sample_pubsub_envelope
     ):
-        """Already-seen message: receipt exists, nothing else runs."""
-        existing = {"incident_id": "INC-2026-000042", "bigquery_persisted": True}
-        with patch.object(ia_firestore, "get_receipt", return_value=existing), \
+        with patch.object(ia_firestore, "get_receipt", return_value=_completed_receipt()), \
              patch.object(ia_vertex, "normalize_log") as mock_vertex, \
              patch.object(ia_bq, "insert_incident") as mock_bq, \
              patch.object(ia_sg_client, "post_alert") as mock_sg:
@@ -64,8 +105,29 @@ class TestPubSubPush:
         mock_bq.assert_not_called()
         mock_sg.assert_not_called()
 
+    def test_incomplete_receipt_resumes_bigquery_without_reposting_slack(
+        self, client, ia_firestore, ia_vertex, ia_bq, ia_sg_client, sample_pubsub_envelope
+    ):
+        receipt = _analysis_receipt(bigquery_persisted=False)
+        with patch.object(ia_firestore, "get_receipt", return_value=receipt), \
+             patch.object(ia_firestore, "update_receipt") as mock_update_receipt, \
+             patch.object(ia_vertex, "normalize_log") as mock_vertex, \
+             patch.object(ia_bq, "incident_exists_by_idempotency_key", return_value=False), \
+             patch.object(ia_bq, "insert_incident") as mock_insert_incident, \
+             patch.object(ia_sg_client, "post_alert") as mock_sg:
+            resp = client.post("/pubsub/push", json=sample_pubsub_envelope)
+
+        assert resp.status_code == 200
+        assert resp.json()["incident_id"] == "INC-2026-000042"
+        mock_vertex.assert_not_called()
+        mock_sg.assert_not_called()
+        mock_insert_incident.assert_called_once()
+        row = mock_insert_incident.call_args.args[0]
+        assert row["slack_message_ts"] == "1.1"
+        assert row["first_alert_sent_at"] == "2026-05-21T00:00:01+00:00"
+        assert {"bigquery_persisted": True} in [call.args[1] for call in mock_update_receipt.call_args_list]
+
     def test_undecodeable_payload_acked_not_crashed(self, client):
-        """Corrupt messages must be acked (200) to avoid infinite DLQ loop."""
         bad_envelope = {
             "message": {
                 "data": "THIS_IS_NOT_VALID_BASE64_OR_JSON!!!",
@@ -73,7 +135,7 @@ class TestPubSubPush:
                 "publishTime": "2026-05-21T00:00:00Z",
                 "attributes": {},
             },
-            "subscription": "projects/test/subscriptions/test-sub",
+            "subscription": "projects/aegis-hub/subscriptions/test-sub",
         }
         resp = client.post("/pubsub/push", json=bad_envelope)
         assert resp.status_code == 200
@@ -82,12 +144,12 @@ class TestPubSubPush:
     def test_gemini_failure_results_in_partial_success(
         self, client, ia_firestore, ia_vertex, ia_bq, ia_sg_client, sample_pubsub_envelope
     ):
-        """Gemini quota/error: fallback text sent, terminal_status=PARTIAL_SUCCESS."""
         with patch.object(ia_firestore, "get_receipt", return_value=None), \
-             patch.object(ia_firestore, "create_receipt"), \
+             patch.object(ia_firestore, "create_receipt", return_value=True), \
              patch.object(ia_firestore, "update_receipt"), \
              patch.object(ia_firestore, "create_session"), \
              patch.object(ia_vertex, "normalize_log", side_effect=Exception("Vertex quota exceeded")), \
+             patch.object(ia_bq, "incident_exists_by_idempotency_key", return_value=False), \
              patch.object(ia_bq, "insert_incident") as mock_bq, \
              patch.object(ia_sg_client, "post_alert", return_value={"ok": True, "ts": "2.2"}) as mock_sg:
             resp = client.post("/pubsub/push", json=sample_pubsub_envelope)
@@ -99,36 +161,46 @@ class TestPubSubPush:
         sg_kwargs = mock_sg.call_args.kwargs
         assert sg_kwargs["formatted_message"] == ""
         assert "AI analysis is currently unavailable" in sg_kwargs["fallback_text"]
+        row = mock_bq.call_args.args[0]
+        assert row["terminal_status"] == "PARTIAL_SUCCESS"
+        assert row["slack_message_ts"] == "2.2"
 
-    def test_bigquery_failure_returns_500_for_pubsub_retry(
-        self, client, ia_firestore, ia_vertex, ia_bq, sample_pubsub_envelope
+    def test_bigquery_failure_returns_500_after_slack_checkpoint(
+        self, client, ia_firestore, ia_vertex, ia_bq, ia_sg_client, sample_pubsub_envelope
     ):
-        """BQ insert fails: 500 so Pub/Sub retries the message."""
         with patch.object(ia_firestore, "get_receipt", return_value=None), \
-             patch.object(ia_firestore, "create_receipt"), \
-             patch.object(ia_firestore, "update_receipt"), \
+             patch.object(ia_firestore, "create_receipt", return_value=True), \
+             patch.object(ia_firestore, "update_receipt") as mock_update_receipt, \
+             patch.object(ia_firestore, "create_session"), \
              patch.object(ia_vertex, "normalize_log", return_value=_NORMALIZED), \
              patch.object(ia_vertex, "classify_incident", return_value=_CLASSIFICATION), \
              patch.object(ia_vertex, "format_slack_alert", return_value=_FORMATTED_ALERT), \
-             patch.object(ia_bq, "insert_incident", side_effect=RuntimeError("BQ insert error")):
+             patch.object(ia_bq, "incident_exists_by_idempotency_key", return_value=False), \
+             patch.object(ia_bq, "insert_incident", side_effect=RuntimeError("BQ insert error")), \
+             patch.object(ia_sg_client, "post_alert", return_value={"ok": True, "ts": "3.3"}) as mock_sg:
             resp = client.post("/pubsub/push", json=sample_pubsub_envelope)
 
         assert resp.status_code == 500
+        mock_sg.assert_called_once()
+        updates = [call.args[1] for call in mock_update_receipt.call_args_list]
+        assert any(update.get("slack_handoff_succeeded") is True for update in updates)
+        assert not any(update == {"bigquery_persisted": True} for update in updates)
 
-    def test_slack_gateway_failure_returns_500_for_pubsub_retry(
+    def test_slack_gateway_failure_returns_500_without_bigquery_write(
         self, client, ia_firestore, ia_vertex, ia_bq, ia_sg_client, sample_pubsub_envelope
     ):
-        """SG handoff fails after BQ success: 500 for retry.
-        Dedup receipt prevents a second BigQuery row on the retry."""
         with patch.object(ia_firestore, "get_receipt", return_value=None), \
-             patch.object(ia_firestore, "create_receipt"), \
+             patch.object(ia_firestore, "create_receipt", return_value=True), \
              patch.object(ia_firestore, "update_receipt"), \
              patch.object(ia_firestore, "create_session"), \
              patch.object(ia_vertex, "normalize_log", return_value=_NORMALIZED), \
              patch.object(ia_vertex, "classify_incident", return_value=_CLASSIFICATION), \
              patch.object(ia_vertex, "format_slack_alert", return_value=_FORMATTED_ALERT), \
-             patch.object(ia_bq, "insert_incident"), \
+             patch.object(ia_bq, "incident_exists_by_idempotency_key") as mock_bq_exists, \
+             patch.object(ia_bq, "insert_incident") as mock_bq_insert, \
              patch.object(ia_sg_client, "post_alert", side_effect=RuntimeError("Gateway unreachable")):
             resp = client.post("/pubsub/push", json=sample_pubsub_envelope)
 
         assert resp.status_code == 500
+        mock_bq_exists.assert_not_called()
+        mock_bq_insert.assert_not_called()

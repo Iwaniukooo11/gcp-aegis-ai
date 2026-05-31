@@ -6,8 +6,8 @@ Incident Analyzer is the write-once owner of:
 """
 import hashlib
 from datetime import datetime, timedelta, timezone
-from typing import Any
 
+from google.api_core.exceptions import AlreadyExists
 from google.cloud import firestore
 
 from app.config import get_settings
@@ -39,24 +39,30 @@ def get_receipt(idempotency_key: str) -> dict | None:
     return doc.to_dict() if doc.exists else None
 
 
-def create_receipt(idempotency_key: str, incident_id: str, metadata: dict) -> None:
-    """Create a deduplication receipt (first delivery claim)."""
+def create_receipt(idempotency_key: str, incident_id: str, metadata: dict) -> bool:
+    """Create a deduplication receipt and return True when this request claimed it."""
     db = _get_client()
     s = get_settings()
-    ttl = datetime.now(tz=timezone.utc) + timedelta(hours=s.receipt_ttl_hours)
-    db.collection("incident_receipts").document(idempotency_key).set(
-        {
-            "idempotency_key": idempotency_key,
-            "incident_id": incident_id,
-            "bigquery_persisted": False,
-            "session_created": False,
-            "slack_handoff_succeeded": False,
-            "created_at": datetime.now(tz=timezone.utc).isoformat(),
-            "updated_at": datetime.now(tz=timezone.utc).isoformat(),
-            "ttl": ttl,
-            **metadata,
-        }
-    )
+    now = datetime.now(tz=timezone.utc)
+    ttl = now + timedelta(hours=s.receipt_ttl_hours)
+    try:
+        db.collection("incident_receipts").document(idempotency_key).create(
+            {
+                "idempotency_key": idempotency_key,
+                "incident_id": incident_id,
+                "analysis_completed": False,
+                "bigquery_persisted": False,
+                "session_created": False,
+                "slack_handoff_succeeded": False,
+                "created_at": now.isoformat(),
+                "updated_at": now.isoformat(),
+                "ttl": ttl,
+                **metadata,
+            }
+        )
+        return True
+    except AlreadyExists:
+        return False
 
 
 def update_receipt(idempotency_key: str, updates: dict) -> None:
