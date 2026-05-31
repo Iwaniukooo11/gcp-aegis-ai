@@ -24,10 +24,27 @@ resource "google_cloud_run_v2_service" "slack_gateway" {
         value = var.slack_alert_channel_id
       }
       env {
+        name  = "SLACK_GATEWAY_URL"
+        value = google_cloud_run_v2_service.slack_gateway.uri
+      }
+      env {
+        name  = "INTERNAL_ALERT_ALLOWED_SERVICE_ACCOUNT"
+        value = google_service_account.incident_analyzer.email
+      }
+      env {
         name = "SLACK_BOT_TOKEN"
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.slack_token.secret_id
+            version = "latest"
+          }
+        }
+      }
+      env {
+        name = "SLACK_SIGNING_SECRET"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.slack_signing_secret.secret_id
             version = "latest"
           }
         }

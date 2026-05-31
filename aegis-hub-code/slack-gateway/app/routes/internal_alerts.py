@@ -6,11 +6,12 @@ POST /v1/internal/incidents/alert
 """
 import logging
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from app.config import get_settings
 from app.integrations import slack_web_api
+from app.security import verify_internal_alert_token
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,11 @@ class AlertPayload(BaseModel):
     fallback_text: str = ""
 
 
-@router.post("/incidents/alert", status_code=status.HTTP_200_OK)
+@router.post(
+    "/incidents/alert",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(verify_internal_alert_token)],
+)
 async def receive_alert(payload: AlertPayload) -> dict:
     """Post an incident alert to the configured Slack channel."""
     message = payload.formatted_message.strip() or payload.fallback_text.strip()
