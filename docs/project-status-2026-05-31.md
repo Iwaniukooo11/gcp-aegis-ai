@@ -33,6 +33,7 @@ Useful parts extracted:
 - local/default auto-chaos disabled
 - better error log messages for Java and Python services
 - Firestore sessions now include `log_timestamp`
+- Firestore sessions now include `pod_name` so Monitoring queries target the exact incident pod
 - Query Processor uses incident log time for Monitoring lookback
 - Query Processor metric catalog now includes CPU limit utilization, CPU request utilization, CPU core usage, memory used, memory limit utilization, and restarts
 - Slack Gateway has better Query Processor error mapping and short retry when the incident session is not ready yet

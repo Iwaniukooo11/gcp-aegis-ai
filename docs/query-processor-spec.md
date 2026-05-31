@@ -489,7 +489,7 @@ When an incident is first processed and alerted, Incident Analyzer **must** crea
 
 - **Identity:** Hub `aegis-bot-sa` with `roles/monitoring.viewer` on each client project (`terraform/client-agent/iam.tf`).
 - **Allowlist:** Env `ALLOWED_CLIENT_PROJECT_IDS` (comma-separated). Query Processor must refuse sessions pointing at other projects.
-- **MVP metrics:** CPU limit utilization, CPU request utilization, CPU core usage, memory used bytes, memory limit utilization, and pod restart count for GKE workloads matching `service_name` in session.
+- **MVP metrics:** CPU limit utilization, CPU request utilization, CPU core usage, memory used bytes, memory limit utilization, and pod restart count for GKE workloads matching `service_name`, `namespace`, `cluster_name`, and `pod_name` in session.
 - **Incident-time anchor:** Query Processor uses `sessions/{incident_id}.log_timestamp` when present, falling back to `created_at`. Monitoring windows are anchored to the actual client log time, not the time when a Slack user asks the question.
 - **Deterministic facts:** Slack responses prepend deterministic CPU/memory/restart facts computed from Cloud Monitoring before Gemini-written explanation text. Gemini must not invent metric values.
 - **Data retention:** Use provider defaults; do not duplicate time series in Hub storage.

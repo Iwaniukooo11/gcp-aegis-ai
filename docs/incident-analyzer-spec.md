@@ -486,6 +486,7 @@ This ensures that retries reuse the same `incident_id` and do not create a secon
   "service_name": "java-api",
   "cluster_name": "mock-gke-autopilot",
   "namespace": "default",
+  "pod_name": "java-api-abc123",
   "severity": "ERROR",
   "error_type": "OutOfMemoryError",
   "ai_summary": "Java heap OOM in java-api pod",
@@ -502,7 +503,7 @@ This ensures that retries reuse the same `incident_id` and do not create a secon
 }
 ```
 
-`log_timestamp` is the timestamp from the original Cloud Logging entry. Query Processor uses it to query Cloud Monitoring around the real incident time.
+`pod_name` scopes Cloud Monitoring queries to the exact pod that emitted the incident log. `log_timestamp` is the timestamp from the original Cloud Logging entry. Query Processor uses it to query Cloud Monitoring around the real incident time.
 
 ### 9.4 `incident_receipts` collection
 

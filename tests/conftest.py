@@ -60,6 +60,7 @@ SAMPLE_SESSION: dict = {
     "service_name": "java-api",
     "cluster_name": "mock-gke-autopilot",
     "namespace": "default",
+    "pod_name": "java-api-abc123",
     "severity": "ERROR",
     "error_type": "OutOfMemoryError",
     "ai_summary": "Java heap exhausted due to unbounded request processing.",

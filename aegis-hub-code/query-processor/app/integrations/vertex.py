@@ -42,12 +42,15 @@ def _build_k8s_container_filter(session: dict) -> str:
     service_name = str(session.get("service_name") or "").strip()
     namespace = str(session.get("namespace") or "").strip()
     cluster_name = str(session.get("cluster_name") or "").strip()
+    pod_name = str(session.get("pod_name") or "").strip()
     if service_name:
         parts.append(f'resource.labels.container_name="{service_name}"')
     if namespace:
         parts.append(f'resource.labels.namespace_name="{namespace}"')
     if cluster_name:
         parts.append(f'resource.labels.cluster_name="{cluster_name}"')
+    if pod_name:
+        parts.append(f'resource.labels.pod_name="{pod_name}"')
     return " AND ".join(parts)
 
 
@@ -150,6 +153,7 @@ def plan_metrics(
         "client_project_id": session.get("client_project_id"),
         "cluster_name": session.get("cluster_name"),
         "namespace": session.get("namespace"),
+        "pod_name": session.get("pod_name"),
         "error_type": session.get("error_type"),
         "ai_summary": session.get("ai_summary"),
         "user_question": user_question,

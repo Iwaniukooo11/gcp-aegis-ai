@@ -48,7 +48,8 @@ The allowlist is intentionally narrow and GKE-specific:
 
 For CPU, memory, and restart questions, deterministic metric facts are added
 to the Slack response before Gemini explanation text. This prevents Gemini from
-inventing metric values.
+inventing metric values. Queries are scoped to the incident pod when `pod_name`
+exists in Firestore session context.
 
 ## Local dev
 
